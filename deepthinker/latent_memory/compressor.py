@@ -8,7 +8,7 @@ latent representations. No training. No gradients.
 import logging
 import numpy as np
 import torch
-from typing import Optional
+from typing import Any, Optional
 
 from transformers import AutoModel, AutoTokenizer
 
@@ -124,6 +124,54 @@ class LatentCompressor:
             logger.error(f"Failed to compress document: {e}")
             # Return zero-filled array on error
             return np.zeros((MEMORY_TOKENS_PER_DOC, self.hidden_size), dtype=np.float16)
+    
+    def compress_document_with_logging(
+        self,
+        text: str,
+        mission_id: str = "",
+        phase_id: str = "",
+        constitution_ledger: Optional["Any"] = None,
+    ) -> np.ndarray:
+        """
+        Compress a document and log to constitution ledger.
+        
+        Args:
+            text: Document text to compress
+            mission_id: Mission identifier for logging
+            phase_id: Phase identifier for logging
+            constitution_ledger: Optional ConstitutionLedger for event logging
+            
+        Returns:
+            Array of shape (MEMORY_TOKENS_PER_DOC, hidden_size) as float16
+        """
+        # Measure input size
+        size_before = len(text) if text else 0
+        
+        # Perform compression
+        result = self.compress_document(text)
+        
+        # Measure output size (in float16 elements)
+        size_after = result.size * 2  # float16 = 2 bytes
+        
+        # Log to constitution ledger if provided
+        if constitution_ledger is not None:
+            try:
+                from ..constitution.types import CompressionEvent
+                constitution_ledger.write_event(CompressionEvent(
+                    mission_id=mission_id,
+                    phase_id=phase_id,
+                    method="latent_compression",
+                    size_before=size_before,
+                    size_after=size_after,
+                    # Note: uncertainty tracking would require additional analysis
+                    uncertainty_before=0.0,
+                    uncertainty_after=0.0,
+                    validated=False,
+                ))
+            except Exception as e:
+                logger.debug(f"[COMPRESSOR] Constitution ledger write failed: {e}")
+        
+        return result
     
     def embed_query(self, text: str) -> np.ndarray:
         """

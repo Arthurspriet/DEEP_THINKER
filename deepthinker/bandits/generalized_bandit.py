@@ -459,17 +459,30 @@ class GeneralizedBandit:
         logger.debug(f"[BANDIT:{self.decision_class}] Thompson selected: {selected}")
         return selected
     
-    def update(self, arm: str, reward: float) -> bool:
+    def update(
+        self,
+        arm: str,
+        reward: float,
+        blocked_reason: Optional[str] = None,
+    ) -> bool:
         """
         Update bandit with observed reward.
         
         Args:
             arm: The arm that was pulled
             reward: Observed reward
+            blocked_reason: If provided, block the update and log the reason
             
         Returns:
-            True if updated, False if frozen or error
+            True if updated, False if frozen, blocked, or error
         """
+        # Check if blocked by constitution or other system
+        if blocked_reason:
+            logger.info(
+                f"[BANDIT:{self.decision_class}] Update blocked: {blocked_reason}"
+            )
+            return False
+        
         if not self.config.enabled:
             return False
         

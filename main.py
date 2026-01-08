@@ -33,6 +33,17 @@ from deepthinker.models import (
 from deepthinker.cli import configure_verbose_logging, verbose_logger
 
 
+def _check_docker_available() -> bool:
+    """Check if Docker is available and running."""
+    try:
+        import docker
+        client = docker.from_env()
+        client.ping()
+        return True
+    except Exception:
+        return False
+
+
 @click.group()
 @click.version_option(version="0.1.0")
 def cli():
@@ -303,14 +314,23 @@ def run(
         effective_verbose = verbose or verbose_full
         configure_verbose_logging(enabled=effective_verbose, full_mode=verbose_full)
         
-        # Initialize LiteLLM monitoring
+        # Initialize LiteLLM monitoring (graceful fallback if unavailable)
+        monitoring_enabled = False
         if enable_monitoring:
-            start_llm_monitoring(
-                log_dir="logs",
-                verbose=monitoring_verbose or effective_verbose,
-                enable_console_output=False,
-                ollama_api_base=os.environ.get("OLLAMA_API_BASE", "http://localhost:11434")
-            )
+            try:
+                start_llm_monitoring(
+                    log_dir="logs",
+                    verbose=monitoring_verbose or effective_verbose,
+                    enable_console_output=False,
+                    ollama_api_base=os.environ.get("OLLAMA_API_BASE", "http://localhost:11434")
+                )
+                monitoring_enabled = True
+            except Exception as e:
+                click.echo(
+                    f"⚠️  LiteLLM monitoring unavailable: {e}. Continuing without monitoring.",
+                    err=True
+                )
+        
         # Load context if provided
         context = None
         if context_file:
@@ -331,9 +351,26 @@ def run(
                 click.echo("❌ Error: --task-type is required when using --data-path", err=True)
                 sys.exit(1)
             
+            # Check execution backend and warn about security
+            effective_backend = execution_backend
+            if execution_backend == "subprocess":
+                docker_available = _check_docker_available()
+                if docker_available:
+                    click.echo(
+                        "⚠️  Warning: Using subprocess backend which provides basic isolation only. "
+                        "Docker is available - consider using --execution-backend=docker for better security.",
+                        err=True
+                    )
+                else:
+                    click.echo(
+                        "⚠️  Warning: Using subprocess backend which provides basic isolation only. "
+                        "Docker is not available. Security scanning will be applied to mitigate risks.",
+                        err=True
+                    )
+            
             # Create Docker config if using Docker backend
             docker_config = None
-            if execution_backend == "docker":
+            if effective_backend == "docker":
                 docker_config = DockerConfig(
                     memory_limit=docker_memory,
                     cpu_limit=docker_cpu,
@@ -347,7 +384,7 @@ def run(
                 target_column=target_column,
                 test_split_ratio=test_split,
                 metric_weight=metric_weight,
-                execution_backend=execution_backend,
+                execution_backend=effective_backend,
                 docker_config=docker_config
             )
         
@@ -570,8 +607,8 @@ def run(
                 json.dump(json_result, f, indent=2, default=str)
             click.echo(f"💾 Results saved to: {output_path}")
         
-        # Print monitoring summary if enabled
-        if enable_monitoring:
+        # Print monitoring summary if monitoring was successfully initialized
+        if monitoring_enabled:
             print_monitoring_summary()
         
     except Exception as e:

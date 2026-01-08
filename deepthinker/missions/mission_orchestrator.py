@@ -35,29 +35,56 @@ from .mission_types import MissionState, MissionPhase, MissionConstraints, Conve
 from .mission_store import MissionStore
 from .mission_time_manager import MissionTimeManager, create_time_manager_from_constraints
 
+import logging
+_import_logger = logging.getLogger(__name__)
+
+# Track unavailable components for summary logging
+_UNAVAILABLE_COMPONENTS: list = []
+
+def _log_import_failure(component: str, error: Exception) -> None:
+    """Log an import failure and track for summary."""
+    _UNAVAILABLE_COMPONENTS.append(component)
+    _import_logger.debug(f"Optional component '{component}' unavailable: {error}")
+
+def get_unavailable_components() -> list:
+    """Return list of components that failed to import."""
+    return list(_UNAVAILABLE_COMPONENTS)
+
+def log_component_summary() -> None:
+    """Log a summary of unavailable components (call once at orchestrator init)."""
+    if _UNAVAILABLE_COMPONENTS:
+        _import_logger.warning(
+            f"MissionOrchestrator: {len(_UNAVAILABLE_COMPONENTS)} optional components unavailable: "
+            f"{', '.join(_UNAVAILABLE_COMPONENTS[:10])}"
+            + (f" and {len(_UNAVAILABLE_COMPONENTS) - 10} more..." if len(_UNAVAILABLE_COMPONENTS) > 10 else "")
+        )
+
 # CognitiveSpine integration
 try:
     from ..core.cognitive_spine import CognitiveSpine
     COGNITIVE_SPINE_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     COGNITIVE_SPINE_AVAILABLE = False
     CognitiveSpine = None
+    _log_import_failure("CognitiveSpine", e)
 
 # Verbose logging integration
 try:
     from ..cli import verbose_logger
     VERBOSE_LOGGER_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     VERBOSE_LOGGER_AVAILABLE = False
     verbose_logger = None
+    _log_import_failure("verbose_logger", e)
 
 # SSE event publishing integration
 try:
     from api.sse import sse_manager
     SSE_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     SSE_AVAILABLE = False
     sse_manager = None
+    _log_import_failure("SSE", e)
 
 
 def _publish_sse_event(coro):
@@ -89,10 +116,11 @@ from ..outputs.output_types import OutputArtifact
 try:
     from ..orchestration import OrchestrationStore, PhaseOutcome
     ORCHESTRATION_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     ORCHESTRATION_AVAILABLE = False
     OrchestrationStore = None
     PhaseOutcome = None
+    _log_import_failure("OrchestrationStore", e)
 
 # Phase time allocator for proactive time budgeting
 try:
@@ -102,11 +130,12 @@ try:
         create_allocator_from_store,
     )
     PHASE_TIME_ALLOCATOR_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     PHASE_TIME_ALLOCATOR_AVAILABLE = False
     PhaseTimeAllocator = None
     TimeAllocation = None
     create_allocator_from_store = None
+    _log_import_failure("PhaseTimeAllocator", e)
 
 # Multi-view councils
 try:
@@ -115,21 +144,23 @@ try:
         extract_disagreements, MultiViewDisagreement
     )
     MULTIVIEW_COUNCILS_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     MULTIVIEW_COUNCILS_AVAILABLE = False
     OptimistCouncil = None
     SkepticCouncil = None
     extract_disagreements = None
     MultiViewDisagreement = None
+    _log_import_failure("MultiViewCouncils", e)
 
 # Dynamic Council Generator
 try:
     from ..councils.dynamic_council_factory import DynamicCouncilFactory, CouncilDefinition
     DYNAMIC_COUNCIL_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     DYNAMIC_COUNCIL_AVAILABLE = False
     DynamicCouncilFactory = None
     CouncilDefinition = None
+    _log_import_failure("DynamicCouncilFactory", e)
 
 # Iteration context management
 try:
@@ -139,11 +170,12 @@ try:
         ContextDelta
     )
     ITERATION_CONTEXT_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     ITERATION_CONTEXT_AVAILABLE = False
     IterationContextManager = None
     IterationState = None
     ContextDelta = None
+    _log_import_failure("IterationContextManager", e)
 
 # Enhanced research evaluation
 try:
@@ -151,10 +183,11 @@ try:
         ResearchEvaluation, ResearchEvaluationContext
     )
     RESEARCH_EVALUATION_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     RESEARCH_EVALUATION_AVAILABLE = False
     ResearchEvaluation = None
     ResearchEvaluationContext = None
+    _log_import_failure("ResearchEvaluation", e)
 
 # Synthesis context
 try:
@@ -162,17 +195,19 @@ try:
         SynthesisContext, SynthesisResult
     )
     SYNTHESIS_CONTEXT_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     SYNTHESIS_CONTEXT_AVAILABLE = False
     SynthesisContext = None
     SynthesisResult = None
+    _log_import_failure("SynthesisContext", e)
 
 # Convergence tracking
 try:
     from ..utils.convergence import ConvergenceTracker
     CONVERGENCE_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     CONVERGENCE_AVAILABLE = False
+    _log_import_failure("ConvergenceTracker", e)
 
 # Step Engine imports
 from ..steps.step_types import StepDefinition, StepExecutionContext, StepResult
@@ -182,8 +217,9 @@ from ..steps.step_executor import StepExecutor
 try:
     from ..resources.gpu_manager import GPUResourceManager
     GPU_MANAGER_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     GPU_MANAGER_AVAILABLE = False
+    _log_import_failure("GPUResourceManager", e)
 
 try:
     from ..supervisor.model_supervisor import (
@@ -193,7 +229,7 @@ try:
         PHASE_IMPORTANCE,
     )
     SUPERVISOR_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     SUPERVISOR_AVAILABLE = False
     GovernanceEscalationSignal = None
     PHASE_IMPORTANCE = {
@@ -203,13 +239,15 @@ except ImportError:
         "testing": 0.7,
         "research": 0.6,
     }
+    _log_import_failure("ModelSupervisor", e)
 
 # Meta-cognition engine import
 try:
     from ..meta.meta_controller import MetaController
     META_CONTROLLER_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     META_CONTROLLER_AVAILABLE = False
+    _log_import_failure("MetaController", e)
 
 # ReasoningSupervisor import
 try:
@@ -222,9 +260,10 @@ try:
         LoopDetection,
     )
     REASONING_SUPERVISOR_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     REASONING_SUPERVISOR_AVAILABLE = False
     ReasoningSupervisor = None
+    _log_import_failure("ReasoningSupervisor", e)
 
 # Depth Evaluator import for depth control
 try:
@@ -237,7 +276,7 @@ try:
         compute_depth_gap,
     )
     DEPTH_EVALUATOR_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     DEPTH_EVALUATOR_AVAILABLE = False
     compute_depth_score = None
     get_depth_target = None
@@ -245,13 +284,15 @@ except ImportError:
     select_enrichment_type = None
     get_enrichment_prompt = None
     compute_depth_gap = None
+    _log_import_failure("DepthEvaluator", e)
 
-# SSE manager for real-time updates
+# SSE manager for real-time updates (note: may be imported earlier, skip logging if already attempted)
 try:
     from api.sse import sse_manager
     SSE_AVAILABLE = True
 except ImportError:
     SSE_AVAILABLE = False
+    # Already logged above if failed
 
 # Cost/Time Predictor for shadow mode prediction logging
 try:
@@ -266,8 +307,9 @@ try:
             EvaluationLogger,
             PREDICTOR_CONFIG,
         )
-except ImportError:
+except ImportError as e:
     COST_PREDICTOR_AVAILABLE = False
+    _log_import_failure("CostTimePredictor", e)
 
 # Phase Risk Predictor for shadow mode risk prediction logging
 try:
@@ -282,8 +324,9 @@ try:
             PhaseRiskEvaluationLogger,
             PREDICTOR_CONFIG as RISK_PREDICTOR_CONFIG,
         )
-except ImportError:
+except ImportError as e:
     RISK_PREDICTOR_AVAILABLE = False
+    _log_import_failure("PhaseRiskPredictor", e)
 
 # Web Search Predictor for shadow mode search necessity prediction logging
 try:
@@ -299,15 +342,17 @@ try:
             PREDICTOR_CONFIG as WEB_SEARCH_PREDICTOR_CONFIG,
             analyze_content,
         )
-except ImportError:
+except ImportError as e:
     WEB_SEARCH_PREDICTOR_AVAILABLE = False
+    _log_import_failure("WebSearchPredictor", e)
 
 # Memory system import
 try:
     from ..memory import MemoryManager, MEMORY_SYSTEM_AVAILABLE
-except ImportError:
+except ImportError as e:
     MEMORY_SYSTEM_AVAILABLE = False
     MemoryManager = None
+    _log_import_failure("MemoryManager", e)
 
 # =============================================================================
 # DeepThinker 2.0 Structural Hardening Components
@@ -325,19 +370,21 @@ try:
         SYNTHESIS_PHASE,
     )
     PHASE_SPEC_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     PHASE_SPEC_AVAILABLE = False
     PhaseSpec = None
     get_phase_spec = None
+    _log_import_failure("PhaseSpec", e)
 
 # Phase validator for contract enforcement
 try:
     from ..core.phase_validator import PhaseValidator, get_phase_validator
     PHASE_VALIDATOR_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     PHASE_VALIDATOR_AVAILABLE = False
     PhaseValidator = None
     get_phase_validator = None
+    _log_import_failure("PhaseValidator", e)
 
 # Memory guard for memory discipline
 try:
@@ -347,19 +394,21 @@ try:
         get_memory_guard,
     )
     MEMORY_GUARD_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     MEMORY_GUARD_AVAILABLE = False
     MemoryGuard = None
     get_memory_guard = None
+    _log_import_failure("MemoryGuard", e)
 
 # Model selector for phase-aware model selection
 try:
     from ..models.model_selector import ModelSelector, get_model_selector
     MODEL_SELECTOR_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     MODEL_SELECTOR_AVAILABLE = False
     ModelSelector = None
     get_model_selector = None
+    _log_import_failure("ModelSelector", e)
 
 # Consensus policy engine for conditional consensus
 try:
@@ -368,18 +417,20 @@ try:
         get_consensus_policy_engine,
     )
     CONSENSUS_POLICY_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     CONSENSUS_POLICY_AVAILABLE = False
     ConsensusPolicyEngine = None
     get_consensus_policy_engine = None
+    _log_import_failure("ConsensusPolicyEngine", e)
 
 # Strict convergence check
 try:
     from ..meta.supervisor import ConvergenceResult
     CONVERGENCE_RESULT_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     CONVERGENCE_RESULT_AVAILABLE = False
     ConvergenceResult = None
+    _log_import_failure("ConvergenceResult", e)
 
 # =============================================================================
 # Epistemic Hardening Components (DeepThinker 2.0)
@@ -397,11 +448,12 @@ try:
         get_claim_validator,
     )
     CLAIM_VALIDATOR_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     CLAIM_VALIDATOR_AVAILABLE = False
     ClaimValidator = None
     get_claim_validator = None
     EpistemicRiskScore = None
+    _log_import_failure("ClaimValidator", e)
 
 # Scenario modeling for structured scenario analysis
 try:
@@ -413,10 +465,11 @@ try:
         get_scenario_factory,
     )
     SCENARIO_MODEL_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     SCENARIO_MODEL_AVAILABLE = False
     ScenarioFactory = None
     get_scenario_factory = None
+    _log_import_failure("ScenarioFactory", e)
 
 # Phase guard for phase purity enforcement
 try:
@@ -428,10 +481,11 @@ try:
         get_phase_guard,
     )
     PHASE_GUARD_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     PHASE_GUARD_AVAILABLE = False
     PhaseGuard = None
     get_phase_guard = None
+    _log_import_failure("PhaseGuard", e)
 
 # Normative Control Layer (Governance)
 try:
@@ -442,12 +496,13 @@ try:
         RecommendedAction,
     )
     GOVERNANCE_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     GOVERNANCE_AVAILABLE = False
     NormativeController = None
     NormativeVerdict = None
     VerdictStatus = None
     RecommendedAction = None
+    _log_import_failure("NormativeController", e)
 
 # Decision Accountability Layer
 try:
@@ -458,12 +513,13 @@ try:
         OutcomeCause,
     )
     DECISION_ACCOUNTABILITY_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     DECISION_ACCOUNTABILITY_AVAILABLE = False
     DecisionEmitter = None
     DecisionStore = None
     DecisionType = None
     OutcomeCause = None
+    _log_import_failure("DecisionEmitter", e)
 
 # Proof-Carrying Reasoning (PCR) - Proof Packet v1
 try:
@@ -475,13 +531,14 @@ try:
     )
     from ..epistemics.contradiction_detector import get_contradiction_detector
     PROOF_PACKETS_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     PROOF_PACKETS_AVAILABLE = False
     ProofPacketBuilder = None
     ProofStore = None
     ProofPacket = None
     generate_blinded_view = None
     get_contradiction_detector = None
+    _log_import_failure("ProofPackets", e)
 
 # Web search gate for mandatory search enforcement
 try:
@@ -491,10 +548,11 @@ try:
         get_web_search_gate,
     )
     WEB_SEARCH_GATE_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     WEB_SEARCH_GATE_AVAILABLE = False
     WebSearchGate = None
     get_web_search_gate = None
+    _log_import_failure("WebSearchGate", e)
 
 # Sprint 1-2: Metrics Integration (Scorecard, Policy, Router, Bandit)
 try:
@@ -506,15 +564,15 @@ try:
     )
     from ..policy import PolicyAction
     METRICS_INTEGRATION_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     METRICS_INTEGRATION_AVAILABLE = False
     get_metrics_config = None
     get_metrics_hook = None
     MetricsOrchestrationHook = None
     PhaseMetricsContext = None
     PolicyAction = None
+    _log_import_failure("MetricsIntegration", e)
 
-import logging
 _orchestrator_logger = logging.getLogger(__name__)
 
 # Minimum time (in minutes) required to attempt a phase
@@ -967,6 +1025,9 @@ class MissionOrchestrator:
             pass
         except Exception as e:
             _orchestrator_logger.debug(f"ConstitutionEngine init failed: {e}")
+        
+        # Log summary of unavailable components (once per session)
+        log_component_summary()
     
     def enable_strict_phases(self, strict: bool = True) -> None:
         """
@@ -4316,16 +4377,21 @@ Start your response with the phases:"""
                     if len(self._recent_scores) > 5:
                         self._recent_scores.pop(0)
                     
-                    # Update bandit if enabled
+                    # Update bandit if enabled (check constitution learning block)
                     if (
                         self._metrics_config and 
                         self._metrics_config.bandit_enabled and
-                        phase.artifacts.get("_model_tier")
+                        phase.artifacts.get("_model_tier") and
+                        not getattr(self, '_learning_blocked', False)
                     ):
                         tier = phase.artifacts["_model_tier"]
                         score_delta = scorecard.score_delta or 0.0
                         cost_delta = 0.01  # Placeholder, would compute from tokens
                         self._metrics_hook.update_bandit(tier, score_delta, cost_delta)
+                    elif getattr(self, '_learning_blocked', False):
+                        _orchestrator_logger.debug(
+                            "[CONSTITUTION] Bandit update skipped - learning blocked"
+                        )
                 
                 # Log policy decision
                 if policy_decision is not None:

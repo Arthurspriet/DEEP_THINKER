@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Optional, Dict, List, Any
 import json
 
-from crewai import Crew, Process
+from crewai import Crew, Process, Task
 
 from ..agents import create_coder_agent, create_evaluator_agent, create_simulator_agent, create_executor_agent, create_websearch_agent, create_planner_agent
 from ..tasks import create_code_task, create_evaluate_task, create_revise_task, create_simulate_task, create_execute_task, create_research_task, create_planning_task

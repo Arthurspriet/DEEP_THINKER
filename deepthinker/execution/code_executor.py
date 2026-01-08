@@ -1,5 +1,8 @@
 """
 Safe execution of generated code on datasets.
+
+WARNING: Subprocess execution provides only basic isolation. For untrusted code,
+use DockerExecutor instead which provides full container-based sandboxing.
 """
 
 import ast
@@ -9,6 +12,7 @@ import subprocess
 import json
 import tempfile
 import os
+import logging
 from pathlib import Path
 from typing import Any, Optional, Tuple
 import time
@@ -19,6 +23,12 @@ from sklearn.model_selection import train_test_split
 
 from ..evaluation.metric_result import ExecutionResult
 from .data_config import DataConfig
+from .security_scanner import SecurityScanner, RiskLevel
+
+logger = logging.getLogger(__name__)
+
+# Track if subprocess warning has been shown this session
+_SUBPROCESS_WARNING_SHOWN = False
 
 
 class CodeExecutor:
@@ -41,7 +51,8 @@ class CodeExecutor:
     @staticmethod
     def execute_model_on_data(
         code: str,
-        config: DataConfig
+        config: DataConfig,
+        enable_security_scan: bool = True
     ) -> Tuple[ExecutionResult, np.ndarray, np.ndarray]:
         """
         Execute generated model code on a dataset.
@@ -49,14 +60,66 @@ class CodeExecutor:
         Args:
             code: Python code containing model class
             config: DataConfig with dataset path, task type, and execution parameters
+            enable_security_scan: Whether to run security scan before execution (default: True)
             
         Returns:
             Tuple of (ExecutionResult, y_test, y_pred)
             - ExecutionResult: execution status and predictions or error info
             - y_test: True labels for test set (empty array if execution failed)
             - y_pred: Model predictions (empty array if execution failed)
+        
+        Note:
+            This uses subprocess execution which provides only basic isolation.
+            For untrusted code, use DockerExecutor which provides full sandboxing.
         """
+        global _SUBPROCESS_WARNING_SHOWN
         start_time = time.time()
+        
+        # Emit warning about subprocess backend (once per session)
+        if not _SUBPROCESS_WARNING_SHOWN:
+            logger.warning(
+                "CodeExecutor using subprocess backend which provides only basic isolation. "
+                "For untrusted code, use DockerExecutor (--execution-backend=docker) for full sandboxing."
+            )
+            _SUBPROCESS_WARNING_SHOWN = True
+        
+        # Run security scan before execution
+        if enable_security_scan:
+            scanner = SecurityScanner()
+            scan_result = scanner.scan(code)
+            
+            # Block execution if critical risks are found
+            if scan_result.max_risk_level == RiskLevel.CRITICAL:
+                critical_issues = [
+                    issue for issue in scan_result.issues 
+                    if issue.risk_level == RiskLevel.CRITICAL
+                ]
+                issue_summary = "; ".join([
+                    f"{issue.category}: {issue.description}" 
+                    for issue in critical_issues[:3]  # Limit to first 3
+                ])
+                return (
+                    ExecutionResult(
+                        success=False,
+                        error_type="SecurityError",
+                        error_message=f"Code blocked by security scanner: {issue_summary}",
+                        traceback="",
+                        execution_time=time.time() - start_time
+                    ),
+                    np.array([]),
+                    np.array([])
+                )
+            
+            # Warn about high-risk issues but allow execution
+            if scan_result.max_risk_level == RiskLevel.HIGH:
+                high_issues = [
+                    issue for issue in scan_result.issues 
+                    if issue.risk_level == RiskLevel.HIGH
+                ]
+                logger.warning(
+                    f"Security scan detected {len(high_issues)} high-risk patterns in code. "
+                    "Proceeding with execution but review is recommended."
+                )
         
         try:
             # Load dataset

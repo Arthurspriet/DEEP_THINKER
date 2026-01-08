@@ -333,7 +333,8 @@ class MLRouterAdvisor:
         decision: RoutingDecision,
         score_delta: float,
         cost_delta: float,
-    ) -> None:
+        blocked_reason: Optional[str] = None,
+    ) -> bool:
         """
         Record outcome for future training.
         
@@ -343,7 +344,16 @@ class MLRouterAdvisor:
             decision: The routing decision that was made
             score_delta: Score improvement achieved
             cost_delta: Cost incurred
+            blocked_reason: If provided, block the recording and log the reason
+            
+        Returns:
+            True if recorded, False if blocked
         """
+        # Check if blocked by constitution or other system
+        if blocked_reason:
+            logger.info(f"[ML_ROUTER] Outcome recording blocked: {blocked_reason}")
+            return False
+        
         # Store outcome for offline training
         outcome_path = Path(self.weights_path).parent / "outcomes.jsonl"
         os.makedirs(os.path.dirname(outcome_path), exist_ok=True)
@@ -359,8 +369,10 @@ class MLRouterAdvisor:
         try:
             with open(outcome_path, "a") as f:
                 f.write(json.dumps(record) + "\n")
+            return True
         except Exception as e:
             logger.warning(f"[ML_ROUTER] Failed to record outcome: {e}")
+            return False
 
 
 # Global router instance

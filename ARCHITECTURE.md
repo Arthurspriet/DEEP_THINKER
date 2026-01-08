@@ -12,6 +12,7 @@ This document provides a visual guide to the DeepThinker multi-agent AI system a
 - [Memory Systems](#memory-systems)
 - [ML Layer](#ml-layer)
 - [Key Concepts](#key-concepts)
+- [Orchestration Stacks](#orchestration-stacks)
 
 ---
 
@@ -572,6 +573,124 @@ flowchart TB
     Core --> AI
     Core --> Infrastructure
 ```
+
+---
+
+## Orchestration Stacks
+
+DeepThinker has **two distinct orchestration stacks** that serve different use cases. Understanding when to use each is important for getting the best results.
+
+### Stack Comparison
+
+```mermaid
+flowchart LR
+    subgraph RunWorkflow [Run Workflow Stack]
+        CLI1[CLI: deepthinker run]
+        RW[run_deepthinker_workflow]
+        CrewAI[CrewAI Agents]
+        Iterative[Iterative Refinement]
+    end
+
+    subgraph MissionEngine [Mission Engine Stack]
+        CLI2[CLI: deepthinker mission]
+        API[FastAPI Routes]
+        MO[MissionOrchestrator]
+        Councils[Council Architecture]
+        MultiPhase[Multi-Phase Execution]
+    end
+
+    CLI1 --> RW
+    RW --> CrewAI
+    CrewAI --> Iterative
+
+    CLI2 --> MO
+    API --> MO
+    MO --> Councils
+    Councils --> MultiPhase
+```
+
+### Run Workflow (`deepthinker run`)
+
+**Location**: `deepthinker/execution/run_workflow.py`
+
+**Use When**:
+- You need a **single-pass code generation** task
+- You're working on **ML model development** with dataset evaluation
+- You want **iterative refinement** of generated code
+- You need **simulation/scenario testing** of code
+
+**Features**:
+- CrewAI-based agent execution
+- Code generation with iterative improvement loop
+- Dataset-based metric evaluation
+- Simulation scenarios for testing
+- Planning and research phases (optional)
+
+**Entry Points**:
+- CLI: `deepthinker run "Create a binary classifier"`
+- Python: `run_deepthinker_workflow(objective="...", data_config=...)`
+
+### Mission Engine (`deepthinker mission`)
+
+**Location**: `deepthinker/missions/mission_orchestrator.py`
+
+**Use When**:
+- You need **long-running, time-bounded** tasks
+- Your objective requires **multiple distinct phases**
+- You need **council-based consensus** and multi-view reasoning
+- You want **advanced features** like:
+  - Governance and normative control
+  - Proof-carrying reasoning
+  - Decision accountability
+  - Meta-cognition and depth control
+  - Web search gates and claim validation
+
+**Features**:
+- Time budget management with phase allocation
+- Council architecture (Planner, Researcher, Coder, Evaluator, Simulator)
+- Multi-view reasoning (Optimist/Skeptic councils)
+- State checkpointing and resumability
+- Output artifact management
+- Orchestration learning layer
+
+**Entry Points**:
+- CLI: `deepthinker mission start -o "Research topic X" -t 60`
+- API: `POST /api/missions/create`
+- Python: `MissionOrchestrator.create_mission(objective, constraints)`
+
+### Feature Comparison Table
+
+| Feature | Run Workflow | Mission Engine |
+|---------|--------------|----------------|
+| Time budgets | No | Yes |
+| Multi-phase execution | Limited | Full support |
+| Council architecture | No (CrewAI agents) | Yes |
+| Iterative code refinement | Yes | Yes (via councils) |
+| Dataset evaluation | Yes | No (use Run Workflow) |
+| Simulation scenarios | Yes | Via Simulation Council |
+| Web research | Yes (optional) | Yes (via Researcher Council) |
+| Governance/safety | Basic | Full (optional components) |
+| State persistence | No | Yes (resumable) |
+| Real-time events (SSE) | No | Yes |
+| API access | No | Yes |
+
+### Migration Path
+
+If you're currently using the Run Workflow and need Mission Engine features:
+
+1. **Time-bounded research**: Use `deepthinker mission start -o "..." -t MINUTES`
+2. **Dataset ML tasks**: Continue using `deepthinker run` (Mission Engine doesn't support dataset evaluation)
+3. **API integration**: Switch to Mission Engine via `/api/missions/` endpoints
+
+### Future Unification
+
+The two stacks evolved from different requirements:
+- Run Workflow: Optimized for ML code generation with metric-based iteration
+- Mission Engine: Optimized for research and analysis with time budgets
+
+Future versions may unify these by:
+- Adding dataset evaluation to Mission Engine's Coder/Evaluator councils
+- Wrapping Run Workflow as a specialized "Code Generation Mission" type
 
 ---
 

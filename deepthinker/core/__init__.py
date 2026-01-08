@@ -11,6 +11,7 @@ The Cognitive Spine is the central unifying layer that enforces:
 
 DeepThinker 2.0 Additions:
 - PhaseValidator: Enforces hard phase contracts
+- SafetyCoreRegistry: Centralized safety module management
 """
 
 from .cognitive_spine import (
@@ -27,6 +28,40 @@ from .phase_validator import (
     get_phase_validator,
 )
 
+from .safety_registry import (
+    SafetyCoreRegistry,
+    SafetyModuleUnavailableError,
+    ModuleCategory,
+    ImportPriority,
+    ModuleSpec,
+    safety,
+    initialize_safety,
+    is_safety_available,
+    get_safety_module,
+    require_safety_module,
+)
+
+from .config_manager import (
+    ConfigManager,
+    DeepThinkerConfig,
+    ModelConfig,
+    IterationConfig as UnifiedIterationConfig,
+    ResearchConfig as UnifiedResearchConfig,
+    PlanningConfig as UnifiedPlanningConfig,
+    ExecutionConfig,
+    GovernanceConfig as UnifiedGovernanceConfig,
+    MemoryConfig,
+    SafetyConfig,
+    ConfigSection,
+    config_manager,
+    get_config,
+    initialize_config,
+    get_model,
+    get_temperature,
+    set_config,
+    update_config,
+)
+
 __all__ = [
     "CognitiveSpine",
     "ResourceBudget",
@@ -37,5 +72,16 @@ __all__ = [
     "PhaseValidator",
     "PhaseValidationResult",
     "get_phase_validator",
+    # Safety Core Registry (new)
+    "SafetyCoreRegistry",
+    "SafetyModuleUnavailableError",
+    "ModuleCategory",
+    "ImportPriority",
+    "ModuleSpec",
+    "safety",
+    "initialize_safety",
+    "is_safety_available",
+    "get_safety_module",
+    "require_safety_module",
 ]
 

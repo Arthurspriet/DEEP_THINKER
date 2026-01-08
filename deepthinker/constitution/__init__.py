@@ -32,6 +32,7 @@ from .types import (
     LearningUpdateEvent,
     ConstitutionViolationEvent,
     ConstitutionEventType,
+    BaselineSnapshot,
 )
 from .constitution_spec import (
     ConstitutionSpec,
@@ -82,6 +83,7 @@ __all__ = [
     "LearningUpdateEvent",
     "ConstitutionViolationEvent",
     "ConstitutionEventType",
+    "BaselineSnapshot",
     # Spec
     "ConstitutionSpec",
     "InvariantType",

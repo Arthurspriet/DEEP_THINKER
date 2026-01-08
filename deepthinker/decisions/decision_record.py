@@ -46,6 +46,16 @@ class DecisionType(str, Enum):
     
     TOOL_USAGE = "tool_usage"
     """Tool usage metrics recorded for a step."""
+    
+    # Cognitive Constitution v1: Constitution Decision Types
+    CONSTITUTION_VIOLATION = "constitution_violation"
+    """Constitution invariant violated."""
+    
+    CONSTITUTION_FLAG = "constitution_flag"
+    """Constitution advisory flag emitted."""
+    
+    CONSTITUTION_LEARNING_BLOCKED = "constitution_learning_blocked"
+    """Learning update blocked by constitution."""
 
 
 class OutcomeCause(str, Enum):

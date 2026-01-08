@@ -332,6 +332,7 @@ class MemoryUsefulnessPredictor:
         budget_tokens: int,
         phase: str,
         mission_id: str = "",
+        constitution_ledger: Optional[Any] = None,
     ) -> Tuple[List[MemoryCandidate], MemoryInjectionLog]:
         """
         Filter to top-K helpful memories within budget.
@@ -341,6 +342,7 @@ class MemoryUsefulnessPredictor:
             budget_tokens: Token budget
             phase: Phase name
             mission_id: Mission identifier
+            constitution_ledger: Optional ConstitutionLedger for event logging
             
         Returns:
             Tuple of (injected_memories, injection_log)
@@ -401,6 +403,22 @@ class MemoryUsefulnessPredictor:
             f"[MEMORY_USEFULNESS] Filtered {len(candidates)} -> {len(injected)} memories "
             f"({current_tokens}/{budget_tokens} tokens)"
         )
+        
+        # Write to constitution ledger if provided
+        if constitution_ledger is not None:
+            try:
+                from ..constitution.types import MemoryEvent
+                constitution_ledger.write_event(MemoryEvent(
+                    mission_id=mission_id,
+                    phase_id=phase,
+                    injected_count=len(injected),
+                    token_budget=budget_tokens,
+                    tokens_used=current_tokens,
+                    memory_types=[m.memory_type.value for m in injected],
+                    rejected_count=len(rejected),
+                ))
+            except Exception as e:
+                logger.debug(f"[MEMORY_USEFULNESS] Constitution ledger write failed: {e}")
         
         return injected, log
     
