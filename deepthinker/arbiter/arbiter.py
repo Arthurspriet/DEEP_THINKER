@@ -12,6 +12,7 @@ from ..outputs.output_types import OutputSpec, OutputFormat
 
 if TYPE_CHECKING:
     from ..missions.mission_types import MissionState
+    from ..proofs import ProofPacket
 
 # Sprint 1-2: Metrics Integration for Final Synthesis Scorecard
 try:
@@ -22,6 +23,16 @@ except ImportError:
     get_metrics_config = None
     get_judge_ensemble = None
     Scorecard = None
+
+# Proof-Carrying Reasoning (PCR) - Proof Packet Integration
+try:
+    from ..proofs import ProofPacketBuilder, ProofStore, ProofPacket
+    PROOF_PACKETS_AVAILABLE = True
+except ImportError:
+    PROOF_PACKETS_AVAILABLE = False
+    ProofPacketBuilder = None
+    ProofStore = None
+    ProofPacket = None
 
 try:
     from langchain_ollama import ChatOllama
@@ -77,6 +88,9 @@ class ArbiterDecision:
     
     # Decision justification
     cost_context: Optional[Dict[str, Any]] = None
+    
+    # Proof-Carrying Reasoning
+    proof_packet_id: Optional[str] = None
 
 
 @dataclass
@@ -116,6 +130,28 @@ class Arbiter:
         self.ollama_base_url = ollama_base_url
         self._llm = None
         self._system_prompt = self._get_default_system_prompt()
+        
+        # Proof-Carrying Reasoning (PCR) - optional integration
+        self._proof_builder: Optional["ProofPacketBuilder"] = None
+        self._proof_store: Optional["ProofStore"] = None
+        self._enable_proof_packets = False
+    
+    def set_proof_components(
+        self,
+        proof_builder: Optional["ProofPacketBuilder"] = None,
+        proof_store: Optional["ProofStore"] = None,
+    ) -> None:
+        """
+        Set proof packet components for synthesis proof generation.
+        
+        Args:
+            proof_builder: ProofPacketBuilder instance
+            proof_store: ProofStore instance
+        """
+        if PROOF_PACKETS_AVAILABLE:
+            self._proof_builder = proof_builder
+            self._proof_store = proof_store
+            self._enable_proof_packets = proof_builder is not None and proof_store is not None
     
     def _get_default_system_prompt(self) -> str:
         """Get the default system prompt for arbiter."""
@@ -442,6 +478,32 @@ Rate your confidence in this synthesis (0.0-1.0):"""
             
             # === Sprint 1-2: Compute Final Synthesis Scorecard ===
             decision = self._compute_final_scorecard(decision, objective)
+            
+            # === Proof-Carrying Reasoning: Build synthesis proof packet ===
+            if self._enable_proof_packets and self._proof_builder is not None and self._proof_store is not None:
+                try:
+                    # Extract mission_id from context if available
+                    _mission_id = "unknown"
+                    if context is not None:
+                        _mission_id = context.get("mission_id", "unknown")
+                    
+                    # Build proof packet from synthesis
+                    proof_packet = self._proof_builder.build_from_arbiter_decision(
+                        arbiter_decision=decision,
+                        mission_id=_mission_id,
+                        council_packets=None,  # Will be populated if available
+                        model_name=self.model_name,
+                    )
+                    
+                    # Store the proof packet
+                    self._proof_store.write(proof_packet)
+                    
+                    # Attach packet ID to decision
+                    decision.proof_packet_id = proof_packet.packet_id
+                    
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).debug(f"Synthesis proof packet generation failed: {e}")
             
             return decision
             

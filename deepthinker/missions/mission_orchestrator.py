@@ -465,6 +465,24 @@ except ImportError:
     DecisionType = None
     OutcomeCause = None
 
+# Proof-Carrying Reasoning (PCR) - Proof Packet v1
+try:
+    from ..proofs import (
+        ProofPacketBuilder,
+        ProofStore,
+        ProofPacket,
+        generate_blinded_view,
+    )
+    from ..epistemics.contradiction_detector import get_contradiction_detector
+    PROOF_PACKETS_AVAILABLE = True
+except ImportError:
+    PROOF_PACKETS_AVAILABLE = False
+    ProofPacketBuilder = None
+    ProofStore = None
+    ProofPacket = None
+    generate_blinded_view = None
+    get_contradiction_detector = None
+
 # Web search gate for mandatory search enforcement
 try:
     from ..councils.researcher_council.researcher_council import (
@@ -832,6 +850,28 @@ class MissionOrchestrator:
                     self._normative_controller.set_decision_emitter(self._decision_emitter)
             except Exception as e:
                 _orchestrator_logger.debug(f"DecisionAccountabilityLayer init failed: {e}")
+        
+        # Proof-Carrying Reasoning (PCR) - Proof Packet Layer
+        self._proof_store: Optional["ProofStore"] = None
+        self._proof_builder: Optional["ProofPacketBuilder"] = None
+        self._enable_proof_packets = False
+        if PROOF_PACKETS_AVAILABLE:
+            try:
+                self._proof_store = ProofStore()
+                self._proof_builder = ProofPacketBuilder(
+                    decision_store=self._decision_store,
+                    contradiction_detector=get_contradiction_detector() if get_contradiction_detector else None,
+                )
+                self._enable_proof_packets = True
+                _orchestrator_logger.debug("ProofPacketLayer initialized")
+                # Wire proof components to arbiter
+                if hasattr(self.arbiter, 'set_proof_components'):
+                    self.arbiter.set_proof_components(
+                        proof_builder=self._proof_builder,
+                        proof_store=self._proof_store,
+                    )
+            except Exception as e:
+                _orchestrator_logger.debug(f"ProofPacketLayer init failed: {e}")
         
         # Cost/Time Predictor for shadow mode prediction logging
         self._cost_predictor: Optional["CostTimePredictor"] = None
@@ -4173,6 +4213,59 @@ Start your response with the phases:"""
         duration = time.time() - start_time
         rounds_completed = state.phase_rounds.get(phase.name, 1)
         state.log(f"Phase '{phase.name}' completed in {duration:.1f}s ({rounds_completed} round(s))")
+        
+        # === Proof-Carrying Reasoning: Build and store proof packet ===
+        if self._enable_proof_packets and self._proof_builder is not None and self._proof_store is not None:
+            try:
+                # Get phase output text from artifacts
+                phase_output = "\n".join(
+                    f"{k}: {v}" for k, v in phase.artifacts.items()
+                    if not k.startswith("_") and isinstance(v, str)
+                )
+                
+                # Get previous packet for this phase (if any)
+                prev_packet = self._proof_store.get_latest(state.mission_id, phase.name)
+                
+                # Update builder with evidence store if available
+                if self.memory is not None and hasattr(self.memory, 'mission_rag'):
+                    self._proof_builder.set_evidence_store(self.memory.mission_rag)
+                
+                # Get model name from artifacts if available
+                model_name = phase.artifacts.get("_model_tier", "")
+                
+                # Build proof packet
+                proof_packet = self._proof_builder.build_from_phase_output(
+                    output_text=phase_output,
+                    phase_name=phase.name,
+                    mission_id=state.mission_id,
+                    model_name=model_name,
+                    prev_packet=prev_packet,
+                    depth_increased=enrichment_passes > 0 if 'enrichment_passes' in dir() else False,
+                )
+                
+                # Store packet
+                self._proof_store.write(proof_packet)
+                
+                # Store packet ID in phase artifacts
+                phase.artifacts["_proof_packet_id"] = proof_packet.packet_id
+                
+                # Log summary
+                summary = proof_packet.get_summary()
+                state.log(
+                    f"[PROOF] Packet {proof_packet.packet_id[:12]}: "
+                    f"{summary['claim_count']} claims, "
+                    f"{summary['evidence_coverage_ratio']:.0%} evidence coverage"
+                )
+                
+                # Log integrity violations if any
+                if proof_packet.integrity_flags.has_violations:
+                    state.log(
+                        f"[PROOF] Integrity violations: "
+                        f"{proof_packet.integrity_flags.violation_count}"
+                    )
+                    
+            except Exception as e:
+                _orchestrator_logger.debug(f"Proof packet generation failed: {e}")
         
         # === Sprint 1-2: Metrics Hook - Phase End ===
         if self._metrics_hook is not None and _metrics_ctx is not None:

@@ -205,6 +205,52 @@ class DecisionStore:
             if r.phase_id == phase_id
         ]
     
+    def get_phase_decision_ids(
+        self,
+        mission_id: str,
+        phase_id: str
+    ) -> Dict[str, List[str]]:
+        """
+        Get decision IDs grouped by type for a phase.
+        
+        Used by Proof Packet Builder to construct Decision Trace.
+        
+        Args:
+            mission_id: Mission identifier
+            phase_id: Phase name to filter by
+            
+        Returns:
+            Dictionary with decision IDs grouped by category:
+            - routing_decision_ids
+            - escalation_decision_ids
+            - alignment_action_ids
+            - tool_event_ids
+        """
+        records = self.get_by_phase(mission_id, phase_id)
+        
+        result = {
+            "routing_decision_ids": [],
+            "escalation_decision_ids": [],
+            "alignment_action_ids": [],
+            "tool_event_ids": [],
+        }
+        
+        for record in records:
+            if record.decision_type == DecisionType.ROUTING_DECISION:
+                result["routing_decision_ids"].append(record.decision_id)
+            elif record.decision_type == DecisionType.MODEL_SELECTION:
+                result["routing_decision_ids"].append(record.decision_id)
+            elif record.decision_type == DecisionType.RETRY_ESCALATION:
+                result["escalation_decision_ids"].append(record.decision_id)
+            elif record.decision_type == DecisionType.EMPTY_OUTPUT_ESCALATION:
+                result["escalation_decision_ids"].append(record.decision_id)
+            elif record.decision_type == DecisionType.GOVERNANCE_INTERVENTION:
+                result["alignment_action_ids"].append(record.decision_id)
+            elif record.decision_type == DecisionType.TOOL_USAGE:
+                result["tool_event_ids"].append(record.decision_id)
+        
+        return result
+    
     def get_decision(
         self,
         mission_id: str,
