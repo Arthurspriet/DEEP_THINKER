@@ -21,6 +21,11 @@ CognitiveSpine Integration:
 - Resource budget enforcement
 - Memory compression between phases
 - Fallback policies for error recovery
+
+SafetyCore Integration:
+- Centralized safety module registry
+- Explicit availability tracking
+- Graceful degradation with logging
 """
 
 import asyncio
@@ -37,8 +42,45 @@ from .mission_time_manager import MissionTimeManager, create_time_manager_from_c
 
 import logging
 _import_logger = logging.getLogger(__name__)
+_orchestrator_logger = logging.getLogger(f"{__name__}.orchestrator")
 
-# Track unavailable components for summary logging
+# =============================================================================
+# SafetyCore Integration
+# =============================================================================
+# The SafetyCore registry provides centralized safety module management.
+# It replaces scattered try/except ImportError blocks with a unified system.
+
+try:
+    from ..core.safety_registry import (
+        safety,
+        SafetyModuleUnavailableError,
+        ModuleCategory,
+    )
+    SAFETY_CORE_AVAILABLE = True
+    # Initialize safety registry to log availability
+    _safety_status = safety.initialize(strict_mode=False)
+    _orchestrator_logger.info(
+        f"SafetyCore initialized: {sum(_safety_status.values())}/{len(_safety_status)} modules available"
+    )
+except ImportError:
+    SAFETY_CORE_AVAILABLE = False
+    safety = None
+    _orchestrator_logger.warning(
+        "SafetyCore not available - falling back to legacy import pattern"
+    )
+
+
+def _get_safety_module(name: str, export: str = None):
+    """
+    Helper to get a safety module using SafetyCore if available.
+    Falls back to None if SafetyCore is not available.
+    """
+    if SAFETY_CORE_AVAILABLE and safety is not None:
+        return safety.get(name, export, warn_if_missing=False)
+    return None
+
+
+# Track unavailable components for summary logging (legacy pattern)
 _UNAVAILABLE_COMPONENTS: list = []
 
 def _log_import_failure(component: str, error: Exception) -> None:
@@ -52,6 +94,17 @@ def get_unavailable_components() -> list:
 
 def log_component_summary() -> None:
     """Log a summary of unavailable components (call once at orchestrator init)."""
+    # If SafetyCore is available, use its reporting
+    if SAFETY_CORE_AVAILABLE and safety is not None:
+        report = safety.get_status_report()
+        unavailable = report.get("total_unavailable", 0)
+        if unavailable > 0:
+            _import_logger.info(
+                f"SafetyCore: {unavailable} modules unavailable (see startup log for details)"
+            )
+        return
+    
+    # Legacy pattern
     if _UNAVAILABLE_COMPONENTS:
         _import_logger.warning(
             f"MissionOrchestrator: {len(_UNAVAILABLE_COMPONENTS)} optional components unavailable: "
@@ -488,6 +541,7 @@ except ImportError as e:
     _log_import_failure("PhaseGuard", e)
 
 # Normative Control Layer (Governance)
+# Note: SafetyCore can also be used via safety.get("governance", "NormativeController")
 try:
     from ..governance import (
         NormativeController,
@@ -503,6 +557,14 @@ except ImportError as e:
     VerdictStatus = None
     RecommendedAction = None
     _log_import_failure("NormativeController", e)
+
+# Verify with SafetyCore if available (provides centralized logging)
+if SAFETY_CORE_AVAILABLE and safety is not None:
+    _governance_via_safety = safety.is_available("governance")
+    if _governance_via_safety != GOVERNANCE_AVAILABLE:
+        _orchestrator_logger.debug(
+            f"Governance availability mismatch: legacy={GOVERNANCE_AVAILABLE}, safety_core={_governance_via_safety}"
+        )
 
 # Decision Accountability Layer
 try:

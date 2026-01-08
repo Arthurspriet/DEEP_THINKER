@@ -62,6 +62,32 @@ from .config_manager import (
     update_config,
 )
 
+from .state_layer import (
+    StateLayer,
+    StateBackend,
+    TransientBackend,
+    PersistentBackend,
+    SessionState,
+    SessionMode,
+    SessionStatus,
+    IterationRecord,
+    PhaseRecord,
+    PhaseStatus,
+    state_layer,
+    initialize_state_layer,
+    get_state_layer,
+)
+
+from .council_bridge import (
+    AgentBridge,
+    SimpleAgentBridge,
+    CouncilAgentBridge,
+    BridgeResult,
+    BridgeFactory,
+    get_bridge_factory,
+    create_bridged_agent,
+)
+
 __all__ = [
     "CognitiveSpine",
     "ResourceBudget",
@@ -83,5 +109,46 @@ __all__ = [
     "is_safety_available",
     "get_safety_module",
     "require_safety_module",
+    # Configuration Manager (new)
+    "ConfigManager",
+    "DeepThinkerConfig",
+    "ModelConfig",
+    "UnifiedIterationConfig",
+    "UnifiedResearchConfig",
+    "UnifiedPlanningConfig",
+    "ExecutionConfig",
+    "UnifiedGovernanceConfig",
+    "MemoryConfig",
+    "SafetyConfig",
+    "ConfigSection",
+    "config_manager",
+    "get_config",
+    "initialize_config",
+    "get_model",
+    "get_temperature",
+    "set_config",
+    "update_config",
+    # State Layer (new)
+    "StateLayer",
+    "StateBackend",
+    "TransientBackend",
+    "PersistentBackend",
+    "SessionState",
+    "SessionMode",
+    "SessionStatus",
+    "IterationRecord",
+    "PhaseRecord",
+    "PhaseStatus",
+    "state_layer",
+    "initialize_state_layer",
+    "get_state_layer",
+    # Council-Agent Bridge (new)
+    "AgentBridge",
+    "SimpleAgentBridge",
+    "CouncilAgentBridge",
+    "BridgeResult",
+    "BridgeFactory",
+    "get_bridge_factory",
+    "create_bridged_agent",
 ]
 

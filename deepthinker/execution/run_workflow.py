@@ -1,10 +1,16 @@
 """
 Workflow orchestration for the DeepThinker multi-agent system.
+
+Enhanced with optional governance support:
+- Enable governance checks after each iteration
+- Uses SafetyCore registry for module availability
+- Graceful degradation if governance modules unavailable
 """
 
 from dataclasses import dataclass
 from typing import Optional, Dict, List, Any
 import json
+import logging
 
 from crewai import Crew, Process, Task
 
@@ -21,6 +27,57 @@ from .simulation_config import SimulationConfig
 from .simulation_runner import SimulationRunner
 from .agent_state_manager import agent_state_manager, AgentPhase
 from .plan_config import WorkflowPlan, WorkflowPlanParser
+
+logger = logging.getLogger(__name__)
+
+# =============================================================================
+# SafetyCore Integration for Optional Governance
+# =============================================================================
+
+# Try to import SafetyCore for governance access
+try:
+    from ..core.safety_registry import safety, SAFETY_CORE_AVAILABLE
+    SAFETY_CORE_AVAILABLE = True
+except ImportError:
+    SAFETY_CORE_AVAILABLE = False
+    safety = None
+
+# Direct imports for governance (fallback if SafetyCore unavailable)
+try:
+    from ..governance import NormativeController, NormativeVerdict, VerdictStatus
+    GOVERNANCE_AVAILABLE = True
+except ImportError:
+    GOVERNANCE_AVAILABLE = False
+    NormativeController = None
+    NormativeVerdict = None
+    VerdictStatus = None
+
+
+def _get_governance_controller():
+    """
+    Get governance controller using SafetyCore or direct import.
+    
+    Returns:
+        NormativeController instance or None if unavailable
+    """
+    # Try SafetyCore first
+    if SAFETY_CORE_AVAILABLE and safety is not None:
+        if safety.is_available("governance"):
+            try:
+                module = safety.get("governance")
+                if module and hasattr(module, 'NormativeController'):
+                    return module.NormativeController()
+            except Exception as e:
+                logger.debug(f"Failed to get governance via SafetyCore: {e}")
+    
+    # Fall back to direct import
+    if GOVERNANCE_AVAILABLE and NormativeController is not None:
+        try:
+            return NormativeController()
+        except Exception as e:
+            logger.debug(f"Failed to create NormativeController: {e}")
+    
+    return None
 
 
 @dataclass
@@ -85,11 +142,38 @@ class PlanningConfig:
     plan_output_path: Optional[str] = None
 
 
+@dataclass
+class GovernanceConfig:
+    """
+    Configuration for governance integration in workflow.
+    
+    Enables opt-in governance checks from the mission path.
+    
+    Attributes:
+        enabled: Whether to run governance checks
+        check_after_each_iteration: Run governance check after each iteration
+        fail_on_block: Raise exception if governance blocks execution
+        warn_threshold: Minimum score to log warning
+        block_threshold: Minimum score to block execution
+    """
+    
+    enabled: bool = False  # Off by default for backward compatibility
+    check_after_each_iteration: bool = True
+    fail_on_block: bool = False
+    warn_threshold: float = 0.3
+    block_threshold: float = 0.7
+
+
 class WorkflowRunner:
     """
     Orchestrates the DeepThinker multi-agent workflow.
     
     Manages agent initialization, task execution, and iterative refinement.
+    
+    Enhanced with optional governance support:
+    - Enable via governance_config parameter
+    - Applies NormativeController checks after each iteration
+    - Logs violations and can optionally block on severe issues
     """
     
     def __init__(
@@ -101,6 +185,7 @@ class WorkflowRunner:
         research_config: Optional[ResearchConfig] = None,
         planning_config: Optional[PlanningConfig] = None,
         agent_model_config: Optional[AgentModelConfig] = None,
+        governance_config: Optional[GovernanceConfig] = None,
         verbose: bool = False
     ):
         """
@@ -114,6 +199,7 @@ class WorkflowRunner:
             research_config: Configuration for web research phase
             planning_config: Configuration for planning phase
             agent_model_config: Configuration for agent-specific models
+            governance_config: Configuration for governance integration (opt-in)
             verbose: Whether to print detailed progress
         """
         self.model_name = model_name
@@ -122,6 +208,7 @@ class WorkflowRunner:
         self.simulation_config = simulation_config or SimulationConfig.create_disabled()
         self.research_config = research_config or ResearchConfig()
         self.planning_config = planning_config or PlanningConfig()
+        self.governance_config = governance_config or GovernanceConfig()
         self.verbose = verbose
         
         # Initialize model loader with agent-specific configuration
@@ -133,6 +220,20 @@ class WorkflowRunner:
         self.workflow_id: Optional[str] = None
         self.research_findings: Optional[str] = None
         self.workflow_plan: Optional[WorkflowPlan] = None
+        
+        # Governance integration
+        self._governance_controller = None
+        self._governance_violations: List[Dict[str, Any]] = []
+        if self.governance_config.enabled:
+            self._governance_controller = _get_governance_controller()
+            if self._governance_controller is None:
+                if self.verbose:
+                    print("⚠️  Governance enabled but controller unavailable")
+                logger.warning("Governance enabled but NormativeController unavailable")
+            else:
+                if self.verbose:
+                    print("✓ Governance enabled")
+                logger.info("Governance integration enabled")
     
     def run(
         self,
@@ -352,6 +453,23 @@ class WorkflowRunner:
                 print(f"   Quality: {current_evaluation.quality_score}/10")
                 print(f"   Status: {'✅ PASSED' if current_evaluation.passed else '❌ NEEDS WORK'}")
             
+            # Run governance check if enabled
+            if self.governance_config.enabled and self.governance_config.check_after_each_iteration:
+                governance_result = self._run_governance_check(
+                    iteration=iteration + 1,
+                    code=current_code,
+                    evaluation=current_evaluation,
+                    objective=objective
+                )
+                if governance_result and governance_result.get("blocked", False):
+                    if self.governance_config.fail_on_block:
+                        raise RuntimeError(
+                            f"Governance blocked iteration {iteration + 1}: "
+                            f"{governance_result.get('reason', 'Unknown')}"
+                        )
+                    if self.verbose:
+                        print(f"   ⚠️  Governance: {governance_result.get('status', 'WARN')}")
+            
             # Check termination conditions
             if not self.iteration_config.enabled:
                 break
@@ -373,8 +491,89 @@ class WorkflowRunner:
             "final_code": current_code,
             "final_evaluation": current_evaluation,
             "iterations_completed": len(self.iteration_history),
-            "quality_score": current_evaluation.quality_score
+            "quality_score": current_evaluation.quality_score,
+            "governance_violations": self._governance_violations if self._governance_violations else None
         }
+    
+    def _run_governance_check(
+        self,
+        iteration: int,
+        code: str,
+        evaluation: Any,
+        objective: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Run governance check on iteration output.
+        
+        Uses NormativeController from mission path to validate outputs.
+        
+        Args:
+            iteration: Current iteration number
+            code: Generated code
+            evaluation: Evaluation result
+            objective: Task objective
+            
+        Returns:
+            Dictionary with governance result or None if unavailable
+        """
+        if self._governance_controller is None:
+            return None
+        
+        try:
+            # Build phase output for governance evaluation
+            phase_output = {
+                "code": code[:5000] if code else "",  # Limit for evaluation
+                "objective": objective,
+                "iteration": iteration,
+                "quality_score": getattr(evaluation, 'quality_score', 0),
+                "issues": [
+                    {"severity": i.severity, "description": i.description}
+                    for i in getattr(evaluation, 'issues', [])
+                ],
+            }
+            
+            # Evaluate with governance controller
+            verdict = self._governance_controller.evaluate(
+                phase_name=f"code_iteration_{iteration}",
+                phase_output=phase_output,
+                mission_state=None  # No mission state in workflow path
+            )
+            
+            # Process verdict
+            result = {
+                "iteration": iteration,
+                "status": verdict.status.value if hasattr(verdict.status, 'value') else str(verdict.status),
+                "violations": len(verdict.violations) if hasattr(verdict, 'violations') else 0,
+                "blocked": False,
+                "reason": None
+            }
+            
+            # Check for block status
+            if hasattr(verdict, 'status'):
+                status_str = str(verdict.status).upper()
+                if "BLOCK" in status_str:
+                    result["blocked"] = True
+                    result["reason"] = "Governance policy violation"
+            
+            # Log violations
+            if hasattr(verdict, 'violations') and verdict.violations:
+                for violation in verdict.violations[:3]:  # Log first 3
+                    violation_info = {
+                        "iteration": iteration,
+                        "type": getattr(violation, 'rule_id', 'unknown'),
+                        "severity": getattr(violation, 'severity', 0)
+                    }
+                    self._governance_violations.append(violation_info)
+                    logger.debug(f"Governance violation: {violation_info}")
+            
+            if self.verbose and result["violations"] > 0:
+                print(f"   📋 Governance: {result['violations']} violation(s)")
+            
+            return result
+            
+        except Exception as e:
+            logger.warning(f"Governance check failed: {e}")
+            return {"error": str(e), "blocked": False}
     
     def _run_code_generation_phase(
         self,
@@ -900,6 +1099,7 @@ def run_deepthinker_workflow(
     research_config: Optional[ResearchConfig] = None,
     planning_config: Optional[PlanningConfig] = None,
     agent_model_config: Optional[AgentModelConfig] = None,
+    governance_config: Optional[GovernanceConfig] = None,
     verbose: bool = False
 ) -> Dict[str, Any]:
     """
@@ -916,6 +1116,7 @@ def run_deepthinker_workflow(
         research_config: Configuration for web research phase
         planning_config: Configuration for planning phase
         agent_model_config: Configuration for agent-specific models
+        governance_config: Configuration for governance integration (opt-in)
         verbose: Whether to print detailed progress
         
     Returns:
@@ -929,6 +1130,7 @@ def run_deepthinker_workflow(
         research_config=research_config,
         planning_config=planning_config,
         agent_model_config=agent_model_config,
+        governance_config=governance_config,
         verbose=verbose
     )
     

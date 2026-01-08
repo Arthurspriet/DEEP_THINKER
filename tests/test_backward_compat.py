@@ -431,20 +431,20 @@ class TestLegacySimulationPath:
         
         Regression test for missing Task import in run_workflow.py.
         """
-        from deepthinker.execution.run_workflow import DeepThinkerWorkflow
+        from deepthinker.execution.run_workflow import WorkflowRunner
         
         # Verify the class can be imported (Task is used in _run_simulation_phase)
-        assert DeepThinkerWorkflow is not None
+        assert WorkflowRunner is not None
         
         # Verify Task is properly imported in the module
         from deepthinker.execution import run_workflow
         assert hasattr(run_workflow, 'Task') or 'Task' in dir(run_workflow)
     
     def test_simulation_phase_method_exists(self):
-        """Test that _run_simulation_phase method exists on DeepThinkerWorkflow."""
-        from deepthinker.execution.run_workflow import DeepThinkerWorkflow
+        """Test that _run_simulation_phase method exists on WorkflowRunner."""
+        from deepthinker.execution.run_workflow import WorkflowRunner
         
-        assert hasattr(DeepThinkerWorkflow, '_run_simulation_phase')
+        assert hasattr(WorkflowRunner, '_run_simulation_phase')
     
     def test_legacy_scenarios_parameter_accepted(self):
         """Test that run_deepthinker_workflow accepts scenarios parameter."""
