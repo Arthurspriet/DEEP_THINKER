@@ -950,6 +950,23 @@ class MissionOrchestrator:
                     )
             except Exception as e:
                 _orchestrator_logger.debug(f"MetricsIntegration init failed: {e}")
+        
+        # Cognitive Constitution v1 Integration
+        self._constitution_engine = None
+        self._constitution_ctx = None
+        self._learning_blocked = False
+        try:
+            from ..constitution import get_engine, get_constitution_config, ConstitutionFlags
+            constitution_config = get_constitution_config()
+            if constitution_config.is_enabled:
+                self._constitution_engine = get_engine(state.mission_id, constitution_config)
+                _orchestrator_logger.debug(
+                    f"ConstitutionEngine initialized (mode={constitution_config.mode.value})"
+                )
+        except ImportError:
+            pass
+        except Exception as e:
+            _orchestrator_logger.debug(f"ConstitutionEngine init failed: {e}")
     
     def enable_strict_phases(self, strict: bool = True) -> None:
         """
@@ -3839,6 +3856,22 @@ Start your response with the phases:"""
             except Exception as e:
                 _orchestrator_logger.debug(f"Metrics phase start hook failed: {e}")
         
+        # === Cognitive Constitution: Snapshot Baseline ===
+        if self._constitution_engine is not None:
+            try:
+                # Get current scorecard if available
+                current_scorecard = None
+                if _metrics_ctx and _metrics_ctx.score_before:
+                    current_scorecard = _metrics_ctx.score_before.scorecard
+                
+                self._constitution_ctx = self._constitution_engine.snapshot_baseline(
+                    state=state,
+                    phase=phase,
+                    scorecard=current_scorecard,
+                )
+            except Exception as e:
+                _orchestrator_logger.debug(f"Constitution baseline snapshot failed: {e}")
+        
         # Verbose logging: phase start
         if VERBOSE_LOGGER_AVAILABLE and verbose_logger and verbose_logger.enabled:
             verbose_logger.log_phase_start(phase)
@@ -4302,6 +4335,46 @@ Start your response with the phases:"""
                     )
             except Exception as e:
                 _orchestrator_logger.debug(f"Metrics phase end hook failed: {e}")
+        
+        # === Cognitive Constitution: Evaluate Phase ===
+        if self._constitution_engine is not None and self._constitution_ctx is not None:
+            try:
+                # Get scorecard from metrics if available
+                phase_scorecard = scorecard if 'scorecard' in dir() else None
+                if _metrics_ctx and _metrics_ctx.score_after:
+                    phase_scorecard = _metrics_ctx.score_after.scorecard
+                
+                # Count evidence added (approximate from tool usage)
+                evidence_added = len([t for t in phase.artifacts.get("_tools_used", [])
+                                      if "search" in t.lower() or "web" in t.lower()])
+                
+                constitution_flags = self._constitution_engine.evaluate_phase(
+                    ctx=self._constitution_ctx,
+                    scorecard=phase_scorecard,
+                    evidence_added=evidence_added,
+                    rounds_used=phase.deepening_rounds + 1,
+                    tools_used=phase.artifacts.get("_tools_used", []),
+                )
+                
+                # Apply enforcement in enforce mode
+                from ..constitution import get_constitution_config
+                constitution_config = get_constitution_config()
+                
+                if constitution_config.is_enforcing:
+                    if constitution_flags.stop_deepening:
+                        phase.termination_reason = "constitution:no_free_lunch"
+                        state.log("[CONSTITUTION] Stopping deepening - no measurable gain")
+                    if constitution_flags.block_learning:
+                        self._learning_blocked = True
+                        state.log("[CONSTITUTION] Learning updates blocked - invariant violation")
+                
+                # Log violations (in any mode)
+                if constitution_flags.violations:
+                    for v in constitution_flags.violations:
+                        state.log(f"[CONSTITUTION] Violation: {v}")
+                        
+            except Exception as e:
+                _orchestrator_logger.debug(f"Constitution evaluation failed: {e}")
         
         # Log resource management panel at phase boundary
         if VERBOSE_LOGGER_AVAILABLE and verbose_logger and verbose_logger.enabled:

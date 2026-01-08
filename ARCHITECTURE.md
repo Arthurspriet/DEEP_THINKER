@@ -10,6 +10,7 @@ This document provides a visual guide to the DeepThinker multi-agent AI system a
 - [Phase Execution](#phase-execution)
 - [Consensus Mechanisms](#consensus-mechanisms)
 - [Memory Systems](#memory-systems)
+- [ML Layer](#ml-layer)
 - [Key Concepts](#key-concepts)
 
 ---
@@ -338,6 +339,111 @@ sequenceDiagram
 
 ---
 
+## ML Layer
+
+DeepThinker includes a **machine learning layer** for continuous improvement and intelligent decision-making.
+
+```mermaid
+flowchart TB
+    subgraph MLLayer [ML Layer]
+        direction TB
+        BAN[Bandits]
+        ROU[ML Router]
+        REW[Rewards]
+        LEA[Learning]
+        ALI[Alignment]
+        MET[Meta-Cognition]
+    end
+
+    subgraph Decisions [Decision Points]
+        D1[Model Selection]
+        D2[Council Set]
+        D3[Iteration Count]
+        D4[Stop/Escalate]
+    end
+
+    subgraph Signals [Feedback Signals]
+        S1[Quality Scores]
+        S2[Cost Metrics]
+        S3[Alignment Scores]
+        S4[Time Usage]
+    end
+
+    Decisions --> MLLayer
+    MLLayer --> Decisions
+    Signals --> REW
+    REW --> BAN
+    REW --> LEA
+    ALI --> MET
+```
+
+### Components
+
+| Component | Purpose | Key Feature |
+|-----------|---------|-------------|
+| **Bandits** | Exploration-exploitation for model/council selection | UCB & Thompson Sampling |
+| **ML Router** | Supervised routing advisor | Council, model tier, rounds |
+| **Rewards** | Unified reward computation | Versioned, deterministic, auditable |
+| **Learning** | Online learning for stop/escalate | Incremental updates |
+| **Alignment** | Soft correction for objective drift | Escalation ladder |
+| **Meta-Cognition** | Self-reflection and hypothesis management | Depth contracts |
+
+### Learning Loop
+
+```mermaid
+flowchart LR
+    subgraph Execution
+        E1[Make Decision]
+        E2[Execute]
+        E3[Observe Outcome]
+    end
+
+    subgraph Learning
+        L1[Compute Reward]
+        L2[Update Models]
+        L3[Persist State]
+    end
+
+    E1 --> E2 --> E3 --> L1 --> L2 --> L3 --> E1
+```
+
+### Alignment Control
+
+Soft corrective pressure when missions drift from objectives:
+
+```mermaid
+flowchart TB
+    Phase[Phase Output] --> Align{Alignment Check}
+    
+    Align -->|Aligned| Continue[Continue Normally]
+    Align -->|Drift Detected| Escalate[Escalation Ladder]
+    
+    Escalate --> L1[1. Reanchor Internal]
+    L1 --> L2[2. Increase Skeptic Weight]
+    L2 --> L3[3. Switch to Evidence Mode]
+    L3 --> L4[4. Prune Focus Areas]
+    L4 --> L5[5. User Confirmation]
+```
+
+### Meta-Cognition Engine
+
+After each phase, the meta-cognition engine:
+
+```mermaid
+flowchart TB
+    PhaseComplete[Phase Complete] --> Reflect[Reflection]
+    Reflect --> Hypotheses[Update Hypotheses]
+    Hypotheses --> Debate[Internal Debate]
+    Debate --> Revise[Plan Revision]
+    Revise --> Supervisor[Supervisor Check]
+    Supervisor --> Next[Next Phase]
+    
+    Supervisor -->|Deepening Needed| Deepen[Trigger Deepening]
+    Deepen --> Next
+```
+
+---
+
 ## Key Concepts
 
 ### Effort Levels
@@ -475,4 +581,12 @@ flowchart TB
 - [deepthinker/missions/](deepthinker/missions/) - Mission orchestration code
 - [deepthinker/councils/](deepthinker/councils/) - Council implementations
 - [deepthinker/consensus/](deepthinker/consensus/) - Consensus mechanisms
+
+### ML Layer Modules
+- [deepthinker/bandits/](deepthinker/bandits/) - Multi-armed bandits
+- [deepthinker/routing/](deepthinker/routing/) - ML-based routing
+- [deepthinker/rewards/](deepthinker/rewards/) - Reward signals
+- [deepthinker/learning/](deepthinker/learning/) - Online learning
+- [deepthinker/alignment/](deepthinker/alignment/) - Alignment control
+- [deepthinker/meta/](deepthinker/meta/) - Meta-cognition engine
 

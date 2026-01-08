@@ -20,6 +20,16 @@ from typing import Any, Dict, List, Optional, Tuple
 from .config import MetricsConfig, get_metrics_config, should_sample
 from .scorecard import Scorecard, ScorecardMetadata
 
+# Constitution blinding integration
+try:
+    from ..constitution.blinding import sanitize_for_judge
+    from ..constitution.config import get_constitution_config
+    CONSTITUTION_BLINDING_AVAILABLE = True
+except ImportError:
+    CONSTITUTION_BLINDING_AVAILABLE = False
+    sanitize_for_judge = None
+    get_constitution_config = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -352,11 +362,25 @@ CONSISTENCY: [0-10]
                 sampled=False,
             )
         
+        # Apply blinding if constitution is enabled
+        blinded_output = output
+        blinded_objective = objective
+        
+        if CONSTITUTION_BLINDING_AVAILABLE:
+            try:
+                const_config = get_constitution_config()
+                if const_config.is_enabled and const_config.blinding_enabled:
+                    blinded_output = sanitize_for_judge(output, const_config)
+                    blinded_objective = sanitize_for_judge(objective, const_config)
+                    logger.debug("[JUDGE] Applied constitution blinding to judge inputs")
+            except Exception as e:
+                logger.debug(f"[JUDGE] Blinding check failed (continuing without): {e}")
+        
         # Call cheap judge
         cheap_scores = self._call_judge(
             self.config.cheap_judge_model,
-            output,
-            objective,
+            blinded_output,
+            blinded_objective,
         )
         
         # Optionally call strong judge
@@ -366,8 +390,8 @@ CONSISTENCY: [0-10]
         if self.config.use_strong_judge:
             strong_scores = self._call_judge(
                 self.config.strong_judge_model,
-                output,
-                objective,
+                blinded_output,
+                blinded_objective,
             )
             disagreement = self._compute_disagreement(cheap_scores, strong_scores)
         
