@@ -1,0 +1,45 @@
+profiles:
+  SAFE_ML:
+    ram_limit: "512m"
+    cpu_limit: 1.0
+    gpu_enabled: false
+    network_policy: "none"
+    network_allowlist: []
+    docker_image: "deepthinker-sandbox:latest"
+    security_scan_level: "strict"
+    allowed_languages: ["python"]
+    max_execution_time: 30
+  
+  GPU_ML:
+    ram_limit: "16g"
+    cpu_limit: 4.0
+    gpu_enabled: true
+    network_policy: "none"
+    network_allowlist: []
+    docker_image: "deepthinker-sandbox-gpu:latest"
+    security_scan_level: "warn"
+    allowed_languages: ["python"]
+    max_execution_time: 300
+  
+  BROWSER:
+    ram_limit: "4g"
+    cpu_limit: 2.0
+    gpu_enabled: false
+    network_policy: "allowlist"
+    network_allowlist: ["*.example.com", "api.example.org"]
+    docker_image: "deepthinker-sandbox-browser:latest"
+    security_scan_level: "log"
+    allowed_languages: ["python"]
+    max_execution_time: 120
+  
+  TRUSTED:
+    ram_limit: "32g"
+    cpu_limit: 8.0
+    gpu_enabled: true
+    network_policy: "full"
+    network_allowlist: []
+    docker_image: "deepthinker-sandbox-trusted:latest"
+    security_scan_level: "disabled"
+    allowed_languages: ["python", "node", "bash"]
+    max_execution_time: 600
+

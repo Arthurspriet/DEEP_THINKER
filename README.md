@@ -1,273 +1,187 @@
-# DeepThinker 🧠
+# DeepThinker
 
-A long-running multi-agent autonomous AI system using CrewAI and local LLMs via Ollama.
+A long-running, time-bounded multi-agent autonomous AI system for complex reasoning and analysis tasks.
 
-DeepThinker performs complex tasks over extended periods through structured, sequential phases with iterative refinement and metric-based evaluation.
+DeepThinker orchestrates multiple specialized AI councils to accomplish complex objectives through structured phases, iterative refinement, and metric-based evaluation—all running locally via Ollama.
 
-## 🏗️ Architecture
-
-```
-deepthinker/
-├── agents/           # AI agent definitions (Coder, Evaluator, Simulator)
-├── tasks/            # Task definitions for each phase
-├── execution/        # Workflow orchestration and code execution
-├── evaluation/       # Result parsing and quality assessment
-└── models/           # Ollama LLM integration
-```
-
-### Multi-Agent System
-
-- **PlannerAgent**: Analyzes objectives and creates detailed execution plans with requirements for each agent
-- **ResearchAgent**: Searches web for documentation, examples, and best practices
-- **CoderAgent**: Generates and revises Python code from specifications
-- **EvaluatorAgent**: Assesses code quality with structured feedback
-- **SimulatorAgent**: Runs scenario-based testing and simulation
-- **ExecutorAgent**: Manages secure code execution with security monitoring
-
-### Workflow Phases
+## Architecture
 
 ```
-1. Planning → 2. Research → 3. Code Generation → 4. Evaluation → 5. Revision (if needed) → 6. Simulation
-                                      ↓
-                                [Iterative Loop]
-                                Continues until:
-                                - Quality threshold met
-                                - Max iterations reached
+                    ┌─────────────────────────────────────────┐
+                    │           Mission Orchestrator          │
+                    │    (Time-bounded, multi-phase execution)│
+                    └────────────────────┬────────────────────┘
+                                         │
+        ┌────────────────────────────────┼────────────────────────────────┐
+        │                                │                                │
+        ▼                                ▼                                ▼
+┌───────────────┐              ┌───────────────┐              ┌───────────────┐
+│    Planner    │              │  Researcher   │              │    Coder      │
+│    Council    │              │    Council    │              │    Council    │
+│               │              │               │              │               │
+│ - Strategy    │              │ - Web search  │              │ - Code gen    │
+│ - Workflow    │              │ - RAG memory  │              │ - Revision    │
+│ - Synthesis   │              │ - Sources     │              │ - Consensus   │
+└───────────────┘              └───────────────┘              └───────────────┘
+        │                                │                                │
+        └────────────────────────────────┼────────────────────────────────┘
+                                         │
+        ┌────────────────────────────────┼────────────────────────────────┐
+        │                                │                                │
+        ▼                                ▼                                ▼
+┌───────────────┐              ┌───────────────┐              ┌───────────────┐
+│   Evaluator   │              │  Simulation   │              │    Arbiter    │
+│    Council    │              │    Council    │              │               │
+│               │              │               │              │ Final decision│
+│ - Quality     │              │ - Testing     │              │ reconciliation│
+│ - Feedback    │              │ - Scenarios   │              │               │
+│ - Scoring     │              │ - Validation  │              │               │
+└───────────────┘              └───────────────┘              └───────────────┘
 ```
 
-## ✨ Key Features
+### Mission Phases
 
-- **🤖 Multi-Agent System**: Specialized agents for planning, research, coding, evaluation, simulation, and secure execution
-- **📋 Strategic Planning**: Planner agent analyzes objectives and creates detailed execution plans with specific requirements for each agent
-- **🔍 Web Research**: Automated research phase to gather documentation and best practices before coding
-- **🔄 Iterative Refinement**: Automatic code improvement based on quality metrics
-- **📊 Metric-Based Evaluation**: Real dataset testing with accuracy/performance metrics
-- **🧪 Scenario Simulation**: Advanced testing across multiple data scenarios
-- **🔒 Secure Code Execution**: Docker-based sandbox with comprehensive security measures
-  - Container isolation with no network access
-  - Static code analysis and security scanning
-  - Resource limits (CPU, memory, timeout)
-  - Protection against malicious code
-- **📈 LiteLLM Monitoring**: Comprehensive observability for all LLM interactions
-  - Token usage tracking
-  - Latency monitoring
-  - Cost estimation
-  - Request/response logging
-  - Error tracking
-- **🔌 Local-First**: Runs entirely on your machine with Ollama
+Missions execute through structured phases, each with time budgets:
 
-## 🚀 Quick Start
+1. **Reconnaissance** - Gather context, background information, and relevant resources
+2. **Analysis & Planning** - Strategic planning and workflow design
+3. **Deep Analysis** - In-depth investigation using evidence and evaluation councils
+4. **Synthesis & Report** - Consolidate findings into actionable outputs
+
+## Features
+
+- **Multi-Council Architecture**: Specialized councils for planning, research, coding, evaluation, and simulation
+- **Time-Bounded Missions**: Configurable time budgets with automatic phase allocation
+- **Iterative Refinement**: Automatic quality improvement through multiple refinement cycles
+- **Web Research Integration**: Automated research to gather documentation and best practices
+- **Multi-View Reasoning**: Optimist/Skeptic councils for balanced analysis
+- **Secure Code Execution**: Docker-based sandbox with security scanning
+- **Local-First**: Runs entirely on your machine with Ollama—no external API calls
+- **Checkpointing**: Mission state saved for resumability
+- **Web UI & API**: React frontend with FastAPI backend for mission management
+
+## Quick Start
 
 ### Prerequisites
 
 1. **Python 3.10+**
-2. **Ollama** installed and running locally
-   - Install: https://ollama.ai
-   - Start: `ollama serve`
-   - Pull a model: `ollama pull deepseek-r1:8b`
+2. **Ollama** installed and running
+   ```bash
+   # Install Ollama: https://ollama.ai
+   ollama serve
+   ollama pull deepseek-r1:8b
+   ```
 
 ### Installation
 
 ```bash
-# Navigate to project directory
-cd /home/arthurspriet/deep_thinker
+cd deep_thinker
 
-# Install dependencies with Poetry
-poetry install
-
-# Or with pip
+# Install with pip
 pip install -e .
+
+# Or with Poetry
+poetry install
 ```
 
-### Basic Usage
+### Run a Mission
 
 ```bash
-# Simple code generation (planning enabled by default)
-python3 main.py run "Create a binary search tree class"
+# Start a research/analysis mission (no code execution)
+python3 main.py mission start \
+  -o "Analyze how AI will transform global labor markets" \
+  -t 15 \
+  --no-code-exec \
+  --verbose
 
-# With iteration configuration
-python3 main.py run "Implement a LRU cache" \
+# Start a coding mission
+python3 main.py mission start \
+  -o "Build a FastAPI REST API with authentication" \
+  -t 30 \
+  --allow-code-exec
+
+# Check mission status
+python3 main.py mission status --id <mission_id>
+
+# List all missions
+python3 main.py mission list
+```
+
+### Run the Web UI
+
+```bash
+# Start the API server
+cd api && uvicorn server:app --reload
+
+# In another terminal, start the frontend
+cd frontend && npm install && npm run dev
+```
+
+## CLI Reference
+
+### Mission Commands
+
+```bash
+# Start a new mission
+python3 main.py mission start \
+  --objective "Your objective here" \
+  --time 60 \                        # Time budget in minutes
+  --allow-internet \                 # Enable web research (default)
+  --allow-code-exec \                # Enable code execution
+  --verbose                          # Detailed output
+
+# Other mission commands
+python3 main.py mission status --id <id>    # Check status
+python3 main.py mission list                 # List all missions
+python3 main.py mission resume --id <id>    # Resume a mission
+python3 main.py mission abort --id <id>     # Abort a mission
+```
+
+### Legacy Run Command
+
+For simple code generation tasks:
+
+```bash
+python3 main.py run "Create a binary search tree class" \
   --max-iterations 5 \
   --quality-threshold 8.0
-
-# With dataset-based evaluation
-python3 main.py run "Build a decision tree classifier" \
-  --data-path examples/iris_classification.csv \
-  --task-type classification \
-  --target-column species
-
-# Save workflow plan to file
-python3 main.py run "Build a neural network" \
-  --save-plan plans/neural_net_plan.json
-
-# Disable planning for simple tasks
-python3 main.py run "Create a calculator class" \
-  --no-planning
-
-# Test Ollama connection
-python3 main.py test-connection
-
-# List available models
-python3 main.py list-models
 ```
 
-## 📋 Features
-
-### ✅ Iterative Refinement Loop
-- Automatic quality improvement through multiple refinement cycles
-- Configurable quality threshold and max iterations
-- Structured feedback with categorized issues (critical/major/minor)
-- Anti-loop mechanism prevents unproductive iterations
-
-### ✅ Metric-Based Evaluation
-- Execute generated code on real datasets
-- Compute task-specific metrics (classification/regression)
-- Combine LLM quality assessment with quantitative performance
-- Configurable metric weighting
-
-### ✅ Scenario Simulation
-- Test code against diverse scenarios
-- Identify edge cases and failure modes
-- Comprehensive simulation reports
-
-### ✅ Local LLM Integration
-- Run entirely locally via Ollama
-- Support for multiple models (deepseek-r1:8b, codellama, mistral, etc.)
-- Model-specific temperature tuning
-- No external API calls or costs
-
-## 🔧 CLI Options
-
-### `run` Command
+### Utility Commands
 
 ```bash
-python3 main.py run OBJECTIVE [OPTIONS]
+python3 main.py test-connection    # Test Ollama connection
+python3 main.py list-models        # List available models
+python3 main.py context councils   # Inspect council configurations
 ```
 
-**Core Options:**
-- `--model TEXT`: Ollama model to use (default: deepseek-r1:8b)
-- `--verbose`: Enable detailed progress output
-
-**Iteration Options:**
-- `--max-iterations INT`: Maximum refinement cycles (default: 3)
-- `--quality-threshold FLOAT`: Min quality score 0-10 (default: 7.0)
-- `--no-iteration`: Disable iteration (single pass only)
-
-**Dataset Options:**
-- `--data-path PATH`: Dataset file for evaluation (CSV/JSON)
-- `--task-type [classification|regression]`: ML task type
-- `--target-column TEXT`: Target column name
-- `--test-split FLOAT`: Test data fraction (default: 0.2)
-- `--metric-weight FLOAT`: Metric weight in score (default: 0.5)
-
-**Context Options:**
-- `--context-file PATH`: JSON file with additional context
-- `--scenarios-file PATH`: JSON file with simulation scenarios
-
-**Output Options:**
-- `--output PATH`: Save results to JSON file
-
-## 📊 Example Workflows
-
-### Basic Code Generation
-
-```bash
-python3 main.py run "Create a function to calculate fibonacci numbers"
-```
-
-### High-Quality Code with Iterations
-
-```bash
-python3 main.py run "Implement a thread-safe singleton pattern" \
-  --max-iterations 5 \
-  --quality-threshold 9.0 \
-  --verbose
-```
-
-### ML Model with Dataset Evaluation
-
-```bash
-python3 main.py run "Create a k-nearest neighbors classifier" \
-  --data-path examples/iris_classification.csv \
-  --task-type classification \
-  --target-column species \
-  --max-iterations 4 \
-  --metric-weight 0.7 \
-  --output results.json
-```
-
-### With Custom Context
-
-```json
-// context.json
-{
-  "language": "Python 3.10",
-  "constraints": [
-    "Use only standard library",
-    "Must be thread-safe",
-    "Include comprehensive docstrings"
-  ],
-  "style": "Google Python Style Guide"
-}
-```
-
-```bash
-python3 main.py run "Create a connection pool" \
-  --context-file context.json
-```
-
-### With Simulation Scenarios
-
-```json
-// scenarios.json
-{
-  "scenarios": [
-    "Empty input",
-    "Single element",
-    "Large dataset (10000 items)",
-    "Concurrent access from 10 threads",
-    "Invalid/malformed input"
-  ]
-}
-```
-
-```bash
-python3 main.py run "Build a rate limiter" \
-  --scenarios-file scenarios.json
-```
-
-## 🔍 Project Structure
+## Project Structure
 
 ```
 deep_thinker/
 ├── deepthinker/              # Main package
-│   ├── agents/               # Agent definitions
-│   │   ├── coder_agent.py
-│   │   ├── evaluator_agent.py
-│   │   └── simulator_agent.py
-│   ├── tasks/                # Task definitions
-│   │   ├── code_task.py
-│   │   ├── evaluate_task.py
-│   │   ├── revise_task.py
-│   │   └── simulate_task.py
-│   ├── execution/            # Workflow orchestration
-│   │   ├── run_workflow.py
-│   │   ├── data_config.py
-│   │   ├── code_executor.py
-│   │   └── metric_computer.py
-│   ├── evaluation/           # Result parsing
-│   │   ├── evaluation_result.py
-│   │   ├── metric_result.py
-│   │   └── result_parser.py
-│   └── models/               # LLM integration
-│       └── ollama_loader.py
-├── examples/                 # Example datasets
+│   ├── agents/               # Individual AI agents
+│   ├── councils/             # Council implementations
+│   │   ├── planner_council/
+│   │   ├── researcher_council/
+│   │   ├── coder_council/
+│   │   ├── evaluator_council/
+│   │   └── simulation_council/
+│   ├── missions/             # Mission orchestration
+│   ├── arbiter/              # Final decision reconciliation
+│   ├── consensus/            # Multi-agent consensus mechanisms
+│   ├── memory/               # RAG and long-term memory
+│   ├── execution/            # Workflow and code execution
+│   ├── models/               # Ollama LLM integration
+│   └── ...
+├── api/                      # FastAPI backend
+├── frontend/                 # React/Vite frontend
+├── tests/                    # Test suite
 ├── main.py                   # CLI entry point
-├── pyproject.toml            # Poetry config
-└── README.md                 # This file
+└── requirements.txt          # Dependencies
 ```
 
-## 🛠️ Configuration
+## Configuration
 
 ### Environment Variables
 
@@ -275,91 +189,42 @@ Create a `.env` file:
 
 ```bash
 # Ollama configuration
-OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_API_BASE=http://localhost:11434
+
+# Default models
 OLLAMA_MODEL=deepseek-r1:8b
-
-# Default iteration settings
-DEFAULT_MAX_ITERATIONS=3
-DEFAULT_QUALITY_THRESHOLD=7.0
-
-# Execution settings
-CODE_EXECUTION_TIMEOUT=30
 ```
 
 ### Model Selection
 
-Different models for different tasks:
+Different models can be assigned to different agents:
 
 ```bash
-# General purpose
-python3 main.py run "..." --model deepseek-r1:8b
-
-# Code generation (if available)
-python3 main.py run "..." --model codellama
-
-# Advanced reasoning
-python3 main.py run "..." --model mixtral
+python3 main.py run "..." \
+  --planner-model cogito:14b \
+  --coder-model deepseek-r1:8b \
+  --evaluator-model gemma3:27b
 ```
 
-## 🐛 Troubleshooting
+## Development
 
-### Ollama Connection Issues
+### Running Tests
 
 ```bash
-# Check if Ollama is running
-curl http://localhost:11434/api/tags
-
-# Test connection
-python3 main.py test-connection
-
-# Start Ollama if not running
-ollama serve
+pytest tests/ -v
 ```
 
-### Import Errors
+### API Development
 
 ```bash
-# Reinstall dependencies
-poetry install
-# or
-pip install -e .
+cd api
+uvicorn server:app --reload --port 8000
 ```
 
-### Memory Issues with Large Models
+## License
 
-```bash
-# Use smaller model
-python3 main.py run "..." --model deepseek-r1:8b:7b
-
-# Or increase Ollama memory limit
-# Edit Ollama service configuration
-```
-
-## 🚧 Development Status
-
-- ✅ Core architecture implemented
-- ✅ Planner agent with dynamic workflow coordination
-- ✅ Web research integration
-- ✅ Iterative refinement working
-- ✅ Metric-based evaluation functional
-- ✅ Secure Docker execution
-- ✅ CLI complete
-- 🚧 Advanced agent logic (ongoing refinement)
-- 🚧 Extended model support
-- 🚧 Distributed execution
-
-## 📝 License
-
-[Add license information]
-
-## 🤝 Contributing
-
-[Add contribution guidelines]
-
-## 📧 Contact
-
-[Add contact information]
+MIT License - See LICENSE file for details.
 
 ---
 
-Built with ❤️ using CrewAI, Ollama, and Python
+Built with Ollama and Python

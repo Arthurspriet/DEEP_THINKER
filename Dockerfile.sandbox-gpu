@@ -1,0 +1,54 @@
+# GPU-enabled Sandbox for Code Execution
+# Extends base sandbox with CUDA support and GPU-enabled ML libraries
+
+FROM python:3.10-slim
+
+# Install CUDA runtime libraries (for GPU support)
+# Note: Requires nvidia-docker runtime
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install CUDA toolkit (minimal runtime)
+# Using CUDA 11.8 for compatibility
+RUN wget https://developer.download.nvidia.com/compute/cuda/repos/debian11/x86_64/cuda-keyring_1.0-1_all.deb \
+    && dpkg -i cuda-keyring_1.0-1_all.deb \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+    cuda-runtime-11-8 \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm cuda-keyring_1.0-1_all.deb
+
+# Install essential ML libraries with GPU support
+RUN pip install --no-cache-dir \
+    numpy==1.24.0 \
+    pandas==2.0.0 \
+    scikit-learn==1.3.0 \
+    torch==2.0.0 \
+    && pip uninstall -y pip setuptools wheel \
+    && rm -rf /root/.cache
+
+# Remove unnecessary tools
+RUN apt-get purge -y --auto-remove \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /usr/share/doc/* \
+    && rm -rf /usr/share/man/* \
+    && rm -rf /tmp/* \
+    && rm -rf /var/tmp/*
+
+# Create non-root user with no shell access
+RUN useradd -m -u 1000 -s /usr/sbin/nologin sandbox
+
+# Create workspace directory
+RUN mkdir -p /workspace && chown sandbox:sandbox /workspace
+
+# Switch to non-root user
+USER sandbox
+
+# Set working directory
+WORKDIR /workspace
+
+# Default command (will be overridden)
+CMD ["python3"]
+

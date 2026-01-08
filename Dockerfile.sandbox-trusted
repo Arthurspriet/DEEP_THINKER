@@ -1,0 +1,41 @@
+# Trusted Sandbox with Extended Capabilities
+# Extends browser sandbox with additional tools for trusted execution
+# Still runs non-root but with more capabilities
+
+FROM deepthinker-sandbox-browser:latest
+
+# Switch back to root temporarily to install additional tools
+USER root
+
+# Install additional trusted tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    wget \
+    jq \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install additional Python libraries for trusted execution
+RUN pip install --no-cache-dir \
+    requests \
+    beautifulsoup4 \
+    && rm -rf /root/.cache
+
+# Remove unnecessary tools
+RUN apt-get purge -y --auto-remove \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /usr/share/doc/* \
+    && rm -rf /usr/share/man/* \
+    && rm -rf /tmp/* \
+    && rm -rf /var/tmp/*
+
+# Switch back to non-root user
+USER sandbox
+
+# Set working directory
+WORKDIR /workspace
+
+# Default command (will be overridden)
+CMD ["python3"]
+

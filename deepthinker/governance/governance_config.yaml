@@ -1,0 +1,271 @@
+# Governance Configuration for Normative Control Layer
+# This file controls the behavior of the governance system.
+# All thresholds and rules are deterministic - no LLM calls.
+
+# =============================================================================
+# Violation Severity Defaults
+# =============================================================================
+# Base severity scores for each violation type (0.0 - 1.0)
+# These can be overridden per-phase in phase_strictness section
+
+violation_severity:
+  # Epistemic violations
+  epistemic_ungrounded_claim: 0.6
+  epistemic_low_source_count: 0.5
+  epistemic_high_speculation: 0.5
+  epistemic_missing_citations: 0.4
+  
+  # Phase purity violations
+  phase_contamination: 0.4
+  phase_premature_recommendation: 0.5
+  phase_premature_conclusion: 0.5
+  phase_late_sourcing: 0.4
+  phase_raw_research_in_synthesis: 0.4
+  
+  # Structural violations (higher severity - these are hard constraints)
+  structural_missing_scenarios: 0.9
+  structural_malformed_scenario: 0.7
+  structural_insufficient_content: 0.6
+  structural_scenario_not_distinct: 0.5
+  
+  # Confidence violations
+  confidence_inflation: 0.4
+  confidence_exceeds_grounding: 0.5
+
+# =============================================================================
+# Hard Rules
+# =============================================================================
+# Violations that can trigger BLOCK status on their own
+# Soft violations accumulate; hard violations are constitutional blocks
+
+hard_rules:
+  - structural_missing_scenarios
+  - structural_malformed_scenario
+
+# =============================================================================
+# Thresholds
+# =============================================================================
+# Aggregate severity thresholds for verdict determination
+
+thresholds:
+  # Aggregate severity above this triggers WARN status
+  warn_threshold: 0.3
+  
+  # Aggregate severity above this triggers BLOCK status
+  block_threshold: 0.7
+  
+  # Minimum epistemic risk to trigger confidence clamping
+  confidence_clamp_threshold: 0.2
+  
+  # Minimum grounded claim ratio required
+  min_grounded_ratio: 0.5
+  
+  # Maximum speculation density allowed
+  max_speculation_density: 0.4
+
+# =============================================================================
+# Phase Strictness
+# =============================================================================
+# Per-phase strictness multipliers (applied to aggregate severity)
+# Higher values = stricter enforcement
+
+phase_strictness:
+  synthesis: 1.0          # Strictest - final output quality is critical
+  deep_analysis: 0.9      # High - scenario generation matters
+  implementation: 0.9     # High - code quality matters
+  analysis: 0.7           # Medium - allow some flexibility
+  reconnaissance: 0.8     # Medium-high - grounding matters
+  research: 0.8           # Medium-high - grounding matters
+  default: 0.6            # Default for unknown phases
+
+# =============================================================================
+# Resource-Aware Modifiers
+# =============================================================================
+# Adjust strictness based on GPU pressure
+# Under high pressure, we're stricter to avoid wasted retries
+
+resource_modifiers:
+  gpu_pressure_low:
+    strictness_multiplier: 1.0
+    max_retries: 3
+    
+  gpu_pressure_medium:
+    strictness_multiplier: 1.1
+    max_retries: 2
+    
+  gpu_pressure_high:
+    strictness_multiplier: 1.2
+    max_retries: 1
+    
+  gpu_pressure_critical:
+    strictness_multiplier: 1.5
+    max_retries: 0  # No retries under critical pressure
+
+# =============================================================================
+# Escalation Policy
+# =============================================================================
+# How violations escalate with repetition
+
+escalation:
+  # Number of violations before escalating from WARN to BLOCK
+  repeated_violation_threshold: 2
+  
+  # Enable automatic escalation from WARN to BLOCK on repeated violations
+  escalate_from_warn_to_block: true
+  
+  # Track violations across phases (vs. per-phase only)
+  cross_phase_tracking: true
+  
+  # Decay factor for historical violations (per phase)
+  violation_decay_factor: 0.5
+  
+  # Model-Aware Phase Stabilization: Enable model escalation on governance retries
+  enable_model_escalation: true
+
+# =============================================================================
+# Phase-Specific Retry Overrides
+# =============================================================================
+# Critical phases get more retries than the resource_modifiers default
+
+phase_retry_overrides:
+  # Synthesis is final output - worth more retries
+  synthesis:
+    max_retries: 4
+  
+  # Deep analysis phases are important for quality
+  deep_analysis:
+    max_retries: 3
+  
+  # Implementation affects code quality
+  implementation:
+    max_retries: 3
+
+# =============================================================================
+# Scenario Requirements
+# =============================================================================
+# Hard structural requirements for synthesis phase
+
+scenario_requirements:
+  # Exactly 3 scenarios required
+  required_count: 3
+  
+  # Each scenario must have a name
+  require_name: true
+  
+  # Minimum distinctness score (0-1)
+  min_distinctness: 0.5
+  
+  # Minimum description length per scenario
+  min_description_length: 50
+
+# =============================================================================
+# Source Requirements
+# =============================================================================
+# Epistemic grounding requirements
+
+source_requirements:
+  # Minimum sources for reconnaissance/research phases
+  min_sources_reconnaissance: 2
+  min_sources_research: 3
+  
+  # Web search is mandatory for factual claims
+  require_web_search_for_facts: true
+  
+  # Maximum ratio of uncited claims
+  max_uncited_ratio: 0.3
+
+# =============================================================================
+# Recommended Actions
+# =============================================================================
+# Mapping from violation patterns to recommended corrective actions
+
+recommended_actions:
+  # When epistemic violations dominate
+  epistemic_dominant:
+    action: FORCE_WEB_SEARCH
+    trigger_types:
+      - epistemic_ungrounded_claim
+      - epistemic_low_source_count
+      - epistemic_missing_citations
+    min_count: 2
+  
+  # When structural violations occur
+  structural_violation:
+    action: RETRY_PHASE
+    trigger_types:
+      - structural_missing_scenarios
+      - structural_malformed_scenario
+    min_count: 1
+  
+  # When phase contamination is high
+  phase_contamination:
+    action: RETRY_PHASE
+    trigger_types:
+      - phase_contamination
+      - phase_premature_recommendation
+      - phase_premature_conclusion
+    min_count: 3
+  
+  # Fallback when too many violations
+  excessive_violations:
+    action: SCOPE_REDUCTION
+    min_total_violations: 5
+
+# =============================================================================
+# Logging & Transparency
+# =============================================================================
+# What to include in governance reports
+
+reporting:
+  # Include in final mission report (summary only)
+  include_in_report: true
+  
+  # Include epistemic risk score
+  report_epistemic_risk: true
+  
+  # Include total violation count
+  report_violation_count: true
+  
+  # Include phases blocked count
+  report_phases_blocked: true
+  
+  # Do NOT include full violation list (verbose)
+  report_full_violations: false
+
+# =============================================================================
+# Depth Control
+# =============================================================================
+# Configuration for depth-aware time utilization
+# Enables enrichment passes when phases complete with surplus time
+
+depth_control:
+  # Enable depth control system
+  enabled: true
+  
+  # Minimum time remaining (seconds) to run an enrichment pass
+  min_enrichment_time_seconds: 30
+  
+  # Maximum number of enrichment passes per phase
+  max_enrichment_passes: 2
+  
+  # Stop enrichment if depth gap falls below this threshold
+  depth_gap_threshold: 0.1
+  
+  # Per-phase depth targets (0.0 - 1.0)
+  # Higher values require more depth indicators (perspectives, trade-offs, etc.)
+  depth_targets:
+    reconnaissance: 0.4    # Exploratory, breadth over depth
+    recon: 0.4             # Alias for reconnaissance
+    research: 0.6          # Should surface multiple angles
+    analysis: 0.7          # Core reasoning phase
+    deep_analysis: 0.85    # Explicitly deep reasoning
+    synthesis: 0.75        # Must synthesize trade-offs
+    planning: 0.5          # Planning is structured, not deep
+    design: 0.6            # Design requires trade-off awareness
+    implementation: 0.5    # Code-focused, depth less relevant
+    coding: 0.5            # Alias for implementation
+    testing: 0.4           # Testing is verification, not depth
+    simulation: 0.6        # Should explore scenarios
+    review: 0.5            # Review is validation
+    default: 0.5           # Baseline for unknown phases
+
