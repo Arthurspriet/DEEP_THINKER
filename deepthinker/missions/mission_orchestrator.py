@@ -1653,6 +1653,153 @@ class MissionOrchestrator:
             logging.getLogger(__name__).warning(f"Failed to initialize memory system: {e}")
             self.memory = None
     
+    def _setup_memory_deferred(
+        self,
+        mission_id: str,
+        objective: str,
+        constraints: MissionConstraints
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Set up memory system without requiring MissionState.
+        
+        This is a deferred version of _setup_memory that can run in parallel
+        before the state is created. Returns a result dict that can be applied
+        to the state later via _apply_memory_result.
+        
+        Args:
+            mission_id: The mission ID
+            objective: The mission objective
+            constraints: Mission constraints
+            
+        Returns:
+            Dict with memory initialization results, or None if setup failed
+        """
+        if not self.enable_memory or not MEMORY_SYSTEM_AVAILABLE:
+            return None
+        
+        try:
+            import os
+            from pathlib import Path
+            
+            # Get base directory from environment or default
+            base_dir = Path(os.getenv("DEEPTHINKER_KB_DIR", "kb"))
+            
+            # Initialize memory manager
+            self.memory = MemoryManager(
+                mission_id=mission_id,
+                objective=objective,
+                mission_type=self._infer_mission_type(objective),
+                time_budget_minutes=constraints.time_budget_minutes,
+                base_dir=base_dir,
+                embedding_model="qwen3-embedding:4b",
+                ollama_base_url=self.planner.model_pool.base_url if hasattr(self.planner.model_pool, 'base_url') else "http://localhost:11434",
+            )
+            
+            result = {
+                "past_insights": [],
+                "seeded_hypotheses": [],
+                "knowledge_context": {
+                    "formatted": "",
+                    "prior_knowledge": [],
+                    "known_gaps": [],
+                    "sources": [],
+                    "items_count": 0,
+                },
+                "logs": [],
+            }
+            
+            # Retrieve past insights for mission context
+            past_insights = self.memory.retrieve_relevant_past_insights(objective, limit=3)
+            if past_insights:
+                result["past_insights"] = past_insights
+                result["logs"].append(f"Retrieved {len(past_insights)} relevant past mission insights")
+                
+                # Seed initial hypotheses from past missions
+                seeded = self.memory.seed_initial_hypotheses(objective, limit=2)
+                if seeded:
+                    result["seeded_hypotheses"] = seeded
+                    result["logs"].append(f"Seeded {len(seeded)} hypotheses from past missions")
+            
+            # Retrieve comprehensive knowledge context (RAG integration)
+            knowledge_summary = self.memory.reason_over(objective=objective, limit=10)
+            
+            if knowledge_summary.get("used_in_prompt"):
+                formatted_knowledge = self.memory.format_for_prompt(knowledge_summary)
+                
+                result["knowledge_context"] = {
+                    "formatted": formatted_knowledge,
+                    "prior_knowledge": knowledge_summary.get("prior_knowledge", []),
+                    "known_gaps": knowledge_summary.get("known_gaps", []),
+                    "sources": knowledge_summary.get("memory_sources", []),
+                    "items_count": knowledge_summary.get("memory_used_count", 0),
+                }
+                
+                result["logs"].append(
+                    f"Knowledge context: {knowledge_summary.get('memory_used_count', 0)} items "
+                    f"from RAG (sources: {', '.join(knowledge_summary.get('memory_sources', [])[:3])})"
+                )
+            else:
+                result["logs"].append("No relevant knowledge found for objective (used_in_prompt=False)")
+            
+            result["logs"].append("Memory system initialized")
+            return result
+            
+        except Exception as e:
+            _orchestrator_logger.warning(f"Failed to initialize memory system (deferred): {e}")
+            self.memory = None
+            return None
+    
+    def _apply_memory_result(self, state: MissionState, memory_result: Dict[str, Any]) -> None:
+        """
+        Apply the result of deferred memory setup to the mission state.
+        
+        Args:
+            state: The mission state to update
+            memory_result: Result dict from _setup_memory_deferred
+        """
+        # Apply knowledge context
+        state.knowledge_context = memory_result.get("knowledge_context", {
+            "formatted": "",
+            "prior_knowledge": [],
+            "known_gaps": [],
+            "sources": [],
+            "items_count": 0,
+        })
+        
+        # Apply logs
+        for log_msg in memory_result.get("logs", []):
+            state.log(log_msg)
+    
+    def _run_shadow_retrieval_deferred(
+        self,
+        mission_id: str,
+        objective: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Run shadow latent memory retrieval without requiring MissionState.
+        
+        This is a deferred version that can run in parallel before the state
+        is created.
+        
+        Args:
+            mission_id: The mission ID
+            objective: The mission objective
+            
+        Returns:
+            Dict with retrieval results, or None if retrieval failed
+        """
+        try:
+            from deepthinker.latent_memory.shadow import run_shadow_latent_retrieval, persist_shadow_log
+            
+            result = run_shadow_latent_retrieval(mission_id, objective)
+            if result:
+                persist_shadow_log(result)
+                return result
+            return None
+        except Exception:
+            # Silent fail - latent memory may not be available
+            return None
+    
     def _infer_mission_type(self, objective: str) -> str:
         """Infer mission type from objective text."""
         objective_lower = objective.lower()
@@ -2017,6 +2164,14 @@ class MissionOrchestrator:
         """
         Create a new mission with phases planned by the planner council.
         
+        Initialization is parallelized for speed:
+        - Phase planning (LLM call)
+        - Memory setup (embedding + RAG)
+        - Shadow latent retrieval (similarity search)
+        
+        The deadline is set AFTER initialization completes, so init time
+        doesn't eat into the mission's time budget.
+        
         Args:
             objective: The mission objective/goal
             constraints: Execution constraints
@@ -2024,12 +2179,63 @@ class MissionOrchestrator:
         Returns:
             Initialized MissionState
         """
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+        
         mission_id = str(uuid.uuid4())
+        init_start = time.time()
+        
+        # === Run slow init operations in parallel ===
+        phases = None
+        memory_result = None
+        shadow_result = None
+        
+        _orchestrator_logger.debug(f"[init] Starting parallel initialization for mission {mission_id[:8]}...")
+        
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            # Submit all tasks
+            phase_future = executor.submit(self._plan_phases, objective, constraints)
+            memory_future = executor.submit(
+                self._setup_memory_deferred, mission_id, objective, constraints
+            )
+            shadow_future = executor.submit(
+                self._run_shadow_retrieval_deferred, mission_id, objective
+            )
+            
+            # Get phases with 90s timeout and fallback to defaults
+            try:
+                phases = phase_future.result(timeout=90)
+            except FuturesTimeoutError:
+                _orchestrator_logger.warning(
+                    f"[init] Phase planning timed out after 90s, using default phases"
+                )
+                phases = self._get_default_phases_with_steps(objective, constraints)
+            except Exception as e:
+                _orchestrator_logger.warning(
+                    f"[init] Phase planning failed: {e}, using default phases"
+                )
+                phases = self._get_default_phases_with_steps(objective, constraints)
+            
+            # Get memory result (60s timeout, non-critical)
+            try:
+                memory_result = memory_future.result(timeout=60)
+            except Exception as e:
+                _orchestrator_logger.debug(f"[init] Memory setup failed (non-critical): {e}")
+                memory_result = None
+            
+            # Get shadow result (30s timeout, non-critical)
+            try:
+                shadow_result = shadow_future.result(timeout=30)
+            except Exception as e:
+                _orchestrator_logger.debug(f"[init] Shadow retrieval failed (non-critical): {e}")
+                shadow_result = None
+        
+        init_elapsed = time.time() - init_start
+        _orchestrator_logger.info(f"[init] Parallel initialization completed in {init_elapsed:.1f}s")
+        
+        # === Set deadline AFTER init completes ===
+        # This ensures init time doesn't eat into mission time budget
         created_at = self._now()
         deadline_at = created_at + timedelta(minutes=constraints.time_budget_minutes)
-        
-        # Use planner council to define phases
-        phases = self._plan_phases(objective, constraints)
         
         state = MissionState(
             mission_id=mission_id,
@@ -2041,7 +2247,7 @@ class MissionOrchestrator:
             status="pending",
         )
         
-        state.log(f"Mission created with {len(phases)} phases")
+        state.log(f"Mission created with {len(phases)} phases (init took {init_elapsed:.1f}s)")
         state.log(f"Time budget: {constraints.time_budget_minutes} minutes")
         state.log(f"Deadline: {deadline_at.isoformat()}")
         
@@ -2054,23 +2260,25 @@ class MissionOrchestrator:
         # === Allocate time budgets to phases ===
         self._allocate_phase_time_budgets(state, phases, constraints)
         
-        # Initialize memory system
-        self._setup_memory(state)
+        # === Apply memory result if available ===
+        if memory_result:
+            self._apply_memory_result(state, memory_result)
+        else:
+            # Initialize empty knowledge context
+            state.knowledge_context = {
+                "formatted": "",
+                "prior_knowledge": [],
+                "known_gaps": [],
+                "sources": [],
+                "items_count": 0,
+            }
         
-        # Run shadow latent memory retrieval (observability only, no injection)
-        try:
-            from deepthinker.latent_memory.shadow import run_shadow_latent_retrieval, persist_shadow_log
-            
-            result = run_shadow_latent_retrieval(state.mission_id, state.objective)
-            if result:
-                persist_shadow_log(result)
-                _orchestrator_logger.info(
-                    f"[latent-shadow] Retrieved {len(result['retrieved_missions'])} "
-                    f"similar missions for mission_id={state.mission_id[:8]}..."
-                )
-        except Exception:
-            # Silent fail - don't log to avoid noise if latent memory is unavailable
-            pass
+        # === Log shadow retrieval result ===
+        if shadow_result:
+            _orchestrator_logger.info(
+                f"[latent-shadow] Retrieved {len(shadow_result.get('retrieved_missions', []))} "
+                f"similar missions for mission_id={state.mission_id[:8]}..."
+            )
         
         self.store.save(state)
         return state
@@ -2815,6 +3023,9 @@ Start your response with the phases:"""
             
             # Finalize alignment tracking
             self._finalize_alignment(state)
+            
+            # Extract claims from final synthesis (if HF instruments enabled)
+            self._extract_mission_claims(state)
             
             state.status = "completed"
             state.log(f"Mission completed successfully after {state.iteration_count} iteration(s)")
@@ -7501,6 +7712,67 @@ Create a structured final report with:
         except Exception as e:
             # Silent failure
             _orchestrator_logger.debug(f"[ALIGNMENT] Finalize failed (non-fatal): {e}")
+    
+    def _extract_mission_claims(self, state: MissionState) -> None:
+        """
+        Extract claims from mission final output and store to kb/claims/.
+        
+        Called at mission completion if HF instruments are enabled.
+        Silent failure: claim extraction errors never crash the mission.
+        
+        Extracts from:
+        - Synthesis report (final_artifacts["synthesis"])
+        - Any other significant final artifacts
+        
+        Args:
+            state: Mission state
+        """
+        try:
+            # Check if claim extraction is enabled
+            from deepthinker.hf_instruments.config import get_config
+            config = get_config()
+            
+            if not config.is_claim_extractor_active():
+                _orchestrator_logger.debug("[CLAIMS] Claim extractor not active, skipping")
+                return
+            
+            from deepthinker.claims import extract_and_store_claims
+            
+            # Get synthesis report (main source of claims)
+            synthesis = state.final_artifacts.get("synthesis", "")
+            
+            if not synthesis or len(synthesis) < 100:
+                _orchestrator_logger.debug("[CLAIMS] No substantial synthesis to extract claims from")
+                return
+            
+            # Extract claims from synthesis
+            result = extract_and_store_claims(
+                text=synthesis,
+                mission_id=state.mission_id,
+                source_type="final_answer",
+                source_ref="synthesis_report",
+                phase="synthesis",
+            )
+            
+            state.log(
+                f"[CLAIMS] Extracted {result.claim_count} claims from synthesis "
+                f"(mode={result.extractor_mode}, time={result.extraction_time_ms:.1f}ms)"
+            )
+            
+            # Store claim metadata in state for observability
+            state.final_artifacts["claim_extraction"] = {
+                "claim_count": result.claim_count,
+                "extractor_mode": result.extractor_mode,
+                "extraction_time_ms": result.extraction_time_ms,
+                "error": result.error,
+            }
+            
+        except ImportError:
+            # HF instruments or claims module not available - silently skip
+            _orchestrator_logger.debug("[CLAIMS] Claims module not available, skipping")
+        except Exception as e:
+            # Silent failure - claim extraction should never crash the mission
+            _orchestrator_logger.debug(f"[CLAIMS] Extraction failed (non-fatal): {e}")
     
     def _run_phase_deepening(
         self,

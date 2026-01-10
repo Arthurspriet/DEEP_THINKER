@@ -7,6 +7,8 @@ embedding backend as consensus/voting.py (MajorityVoteConsensus).
 Storage paths:
 - Per-mission: kb/missions/<mission_id>/rag/
 - Global: kb/rag/global/
+
+Optional HF reranking stage for improved retrieval quality.
 """
 
 import json
@@ -21,6 +23,54 @@ import numpy as np
 from .schemas import EvidenceSchema
 
 logger = logging.getLogger(__name__)
+
+
+def _apply_rerank(
+    query: str,
+    results: List[Tuple[Dict[str, Any], float]],
+    top_k: int,
+    mission_id: Optional[str] = None,
+) -> List[Tuple[Dict[str, Any], float]]:
+    """
+    Apply HF reranking to search results if enabled.
+    
+    Constraint 2: Each passage includes vector_score, rerank_score,
+    rank_before, rank_after, reranked=true.
+    
+    Constraint 4: On error, returns original ordering.
+    
+    Args:
+        query: Query text
+        results: List of (document, score) tuples from vector search
+        top_k: Final number of results to return
+        mission_id: Optional mission ID for observability
+        
+    Returns:
+        Reranked results with provenance fields
+    """
+    if not results:
+        return results
+    
+    try:
+        from deepthinker.hf_instruments import get_reranker
+        
+        reranker = get_reranker()
+        if reranker is None:
+            # Reranker not available/enabled - return original results
+            return results[:top_k]
+        
+        # Apply reranking
+        reranked = reranker.rerank(query, results, top_k=top_k, mission_id=mission_id)
+        return reranked
+        
+    except ImportError:
+        # HF instruments not installed
+        logger.debug("HF instruments not available, skipping rerank")
+        return results[:top_k]
+    except Exception as e:
+        # Any error - fail gracefully
+        logger.warning(f"Reranking failed: {e}, returning original ordering")
+        return results[:top_k]
 
 
 class EmbeddingProvider:
@@ -247,6 +297,7 @@ class MissionRAGStore:
         phase_filter: Optional[str] = None,
         artifact_type_filter: Optional[str] = None,
         min_score: float = 0.3,
+        enable_rerank: bool = True,
     ) -> List[Tuple[Dict[str, Any], float]]:
         """
         Search for similar documents.
@@ -257,9 +308,12 @@ class MissionRAGStore:
             phase_filter: Optional phase filter
             artifact_type_filter: Optional artifact type filter
             min_score: Minimum similarity score
+            enable_rerank: Whether to apply HF reranking (if available/enabled)
             
         Returns:
-            List of (document, score) tuples sorted by relevance
+            List of (document, score) tuples sorted by relevance.
+            If reranking is applied, documents will include provenance fields:
+            - vector_score, rerank_score, rank_before, rank_after, reranked
         """
         if not self._documents or self._embeddings is None or self._embeddings.size == 0:
             return []
@@ -270,6 +324,17 @@ class MissionRAGStore:
             return []
         
         query_vec = np.array(query_embedding)
+        
+        # Get rerank config for expanded retrieval
+        rerank_topn = top_k
+        if enable_rerank:
+            try:
+                from deepthinker.hf_instruments.config import get_config
+                config = get_config()
+                if config.is_reranker_active():
+                    rerank_topn = max(top_k, config.rerank_topn)
+            except ImportError:
+                pass
         
         # Compute similarities
         results = []
@@ -296,7 +361,16 @@ class MissionRAGStore:
         # Sort by score descending
         results.sort(key=lambda x: x[1], reverse=True)
         
-        return results[:top_k]
+        # Take expanded set for reranking
+        results = results[:rerank_topn]
+        
+        # Apply optional reranking
+        if enable_rerank and results:
+            results = _apply_rerank(query, results, top_k, mission_id=self.mission_id)
+        else:
+            results = results[:top_k]
+        
+        return results
     
     def get_all_documents(self) -> List[Dict[str, Any]]:
         """Get all documents in the store."""
@@ -575,6 +649,7 @@ class GlobalRAGStore:
         domain_filter: Optional[str] = None,
         artifact_type_filter: Optional[str] = None,
         min_score: float = 0.3,
+        enable_rerank: bool = True,
     ) -> List[Tuple[Dict[str, Any], float]]:
         """
         Search for similar documents globally.
@@ -585,9 +660,12 @@ class GlobalRAGStore:
             domain_filter: Optional domain filter
             artifact_type_filter: Optional artifact type filter
             min_score: Minimum similarity score
+            enable_rerank: Whether to apply HF reranking (if available/enabled)
             
         Returns:
-            List of (document, score) tuples
+            List of (document, score) tuples.
+            If reranking is applied, documents will include provenance fields:
+            - vector_score, rerank_score, rank_before, rank_after, reranked
         """
         if not self._documents or self._embeddings is None or self._embeddings.size == 0:
             return []
@@ -598,6 +676,17 @@ class GlobalRAGStore:
             return []
         
         query_vec = np.array(query_embedding)
+        
+        # Get rerank config for expanded retrieval
+        rerank_topn = top_k
+        if enable_rerank:
+            try:
+                from deepthinker.hf_instruments.config import get_config
+                config = get_config()
+                if config.is_reranker_active():
+                    rerank_topn = max(top_k, config.rerank_topn)
+            except ImportError:
+                pass
         
         # Compute similarities
         results = []
@@ -620,8 +709,19 @@ class GlobalRAGStore:
             if score >= min_score:
                 results.append((doc, score))
         
+        # Sort by score descending
         results.sort(key=lambda x: x[1], reverse=True)
-        return results[:top_k]
+        
+        # Take expanded set for reranking
+        results = results[:rerank_topn]
+        
+        # Apply optional reranking
+        if enable_rerank and results:
+            results = _apply_rerank(query, results, top_k, mission_id="global")
+        else:
+            results = results[:top_k]
+        
+        return results
     
     def get_by_mission(self, mission_id: str) -> List[Dict[str, Any]]:
         """Get all documents from a specific mission."""

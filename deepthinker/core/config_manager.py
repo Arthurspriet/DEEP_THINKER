@@ -390,6 +390,22 @@ class ConfigManager:
         "VERBOSE": "verbose",
         "DEBUG": "debug",
         "OLLAMA_API_BASE": "ollama_base_url",
+        
+        # HF Instruments (Note: HF instruments have their own config module
+        # at deepthinker.hf_instruments.config. These mappings are provided
+        # for documentation but the actual HF config is loaded separately.)
+        # To configure HF instruments, use:
+        #   DEEPTHINKER_HF_INSTRUMENTS_ENABLED=true
+        #   DEEPTHINKER_HF_RERANKER_ENABLED=true
+        #   DEEPTHINKER_HF_EMBEDDINGS_ENABLED=true
+        #   DEEPTHINKER_HF_CLAIM_EXTRACTOR_ENABLED=true
+        #   DEEPTHINKER_HF_DEVICE=auto|cpu|cuda
+        #   DEEPTHINKER_HF_RERANK_MODEL_ID=cross-encoder/ms-marco-MiniLM-L-6-v2
+        #   DEEPTHINKER_HF_EMBED_MODEL_ID=BAAI/bge-small-en-v1.5
+        #   DEEPTHINKER_HF_RERANK_TOPN=20
+        #   DEEPTHINKER_HF_RERANK_MAX_LENGTH=512
+        #   DEEPTHINKER_HF_RERANK_BATCH_SIZE=8
+        #   DEEPTHINKER_HF_CLAIM_EXTRACTOR_MODE=regex|hf|llm-json
     }
     
     def __init__(self):
