@@ -80,6 +80,29 @@ if TYPE_CHECKING:
     from .dynamic_council_factory import CouncilDefinition
     from ..decisions.decision_emitter import DecisionEmitter
 
+# Knowledge routing for per-persona knowledge injection
+try:
+    from ..memory.knowledge_router import (
+        KnowledgeRouter,
+        get_knowledge_router,
+        route_knowledge_for_persona,
+    )
+    KNOWLEDGE_ROUTER_AVAILABLE = True
+except ImportError:
+    KNOWLEDGE_ROUTER_AVAILABLE = False
+    KnowledgeRouter = None
+    get_knowledge_router = None
+    route_knowledge_for_persona = None
+
+# Persona domain loading
+try:
+    from ..personas import load_persona_with_domains, get_domains_for_persona
+    PERSONA_DOMAINS_AVAILABLE = True
+except ImportError:
+    PERSONA_DOMAINS_AVAILABLE = False
+    load_persona_with_domains = None
+    get_domains_for_persona = None
+
 
 @dataclass
 class CouncilResult:
@@ -182,6 +205,10 @@ class BaseCouncil(ABC):
         # Persona cache for dynamic persona injection
         self._persona_cache: Dict[str, str] = {}
         self._personas_loaded: bool = False
+        
+        # Knowledge context cache for per-persona knowledge routing
+        self._knowledge_items: List[Tuple[Any, float]] = []
+        self._per_persona_knowledge: Dict[str, str] = {}
         
         # Inject into model pool if provided
         if gpu_manager is not None and model_pool.gpu_manager is None:
@@ -775,29 +802,105 @@ PROCEED WITH THE ASSIGNED ANALYSIS:
     
     def get_system_prompt_with_persona(self, model_name: str) -> Optional[str]:
         """
-        Get system prompt with persona injected for a specific model.
+        Get system prompt with persona and knowledge injected for a specific model.
         
         If a persona is assigned to this model, it's prepended to the
         base system prompt. This creates model-specific prompts that
         embody different analytical perspectives.
         
+        Additionally, if knowledge items are available, routes relevant
+        knowledge based on the persona's domain preferences.
+        
         Args:
             model_name: Name of the model
             
         Returns:
-            System prompt with persona, or base system prompt
+            System prompt with persona and knowledge, or base system prompt
         """
         base_prompt = self.get_system_prompt()
         persona = self.get_persona_for_model(model_name)
         
-        if not persona:
+        # Get per-persona knowledge if available
+        persona_knowledge = self._get_knowledge_for_persona(model_name)
+        
+        if not persona and not persona_knowledge:
             return base_prompt
         
-        # Prepend persona to system prompt
+        parts = []
+        
+        # Add persona
+        if persona:
+            parts.append(persona)
+        
+        # Add routed knowledge
+        if persona_knowledge:
+            parts.append(f"\n## Relevant Knowledge\n{persona_knowledge}")
+        
+        # Add separator and base prompt
         if base_prompt:
-            return f"{persona}\n\n---\n\n{base_prompt}"
-        else:
-            return persona
+            parts.append(f"\n---\n\n{base_prompt}")
+        
+        return "\n".join(parts) if parts else base_prompt
+    
+    def _get_knowledge_for_persona(self, model_name: str) -> Optional[str]:
+        """
+        Get routed knowledge for a model's persona.
+        
+        Uses KnowledgeRouter to filter knowledge by persona domain.
+        
+        Args:
+            model_name: Name of the model
+            
+        Returns:
+            Formatted knowledge string, or None
+        """
+        # Check cache first
+        if model_name in self._per_persona_knowledge:
+            return self._per_persona_knowledge[model_name]
+        
+        # No knowledge items loaded
+        if not self._knowledge_items:
+            return None
+        
+        # Get persona name for this model
+        persona_name = None
+        if self.council_definition is not None:
+            for m_name, _, p_name in self.council_definition.models:
+                if m_name == model_name and p_name:
+                    persona_name = p_name
+                    break
+        
+        # Route knowledge if router available
+        if KNOWLEDGE_ROUTER_AVAILABLE and route_knowledge_for_persona:
+            try:
+                routed = route_knowledge_for_persona(
+                    persona_name or "default",
+                    self._knowledge_items,
+                    max_items=8
+                )
+                
+                if routed.items:
+                    formatted = routed.format_for_prompt(max_chars=2000)
+                    self._per_persona_knowledge[model_name] = formatted
+                    return formatted
+            except Exception as e:
+                logger.debug(f"Failed to route knowledge for persona: {e}")
+        
+        return None
+    
+    def set_knowledge_items(self, items: List[Tuple[Any, float]]) -> None:
+        """
+        Set knowledge items for per-persona routing.
+        
+        Should be called by the orchestrator after retrieving knowledge
+        from the RAG system. The items will be routed to individual
+        personas based on their domain preferences.
+        
+        Args:
+            items: List of (knowledge_item, relevance_score) tuples
+        """
+        self._knowledge_items = items
+        self._per_persona_knowledge.clear()  # Clear cache on new items
     
     def build_persona_aware_prompts(self) -> Dict[str, str]:
         """

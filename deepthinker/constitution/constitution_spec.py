@@ -299,3 +299,4 @@ def get_default_spec() -> ConstitutionSpec:
     """Get the default constitution specification."""
     return ConstitutionSpec()
 
+

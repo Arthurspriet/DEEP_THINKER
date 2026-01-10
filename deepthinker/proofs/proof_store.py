@@ -461,3 +461,4 @@ def get_proof_store(base_dir: Optional[Path] = None) -> ProofStore:
         _store = ProofStore(base_dir=base_dir)
     return _store
 
+

@@ -736,3 +736,4 @@ def update_config(updates: Dict[str, Any]) -> None:
     """Update multiple configuration values."""
     config_manager.update(updates)
 
+

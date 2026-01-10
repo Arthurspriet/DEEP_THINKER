@@ -43,6 +43,8 @@ class PlannerContext:
     quality_threshold: float = 7.0
     data_config: Optional[Any] = None
     simulation_config: Optional[Any] = None
+    # Knowledge context from RAG retrieval
+    knowledge_context: Optional[str] = None
 
 
 @dataclass
@@ -64,6 +66,8 @@ class SynthesisContext:
     # Tracking for evolution
     prior_synthesis_summary: Optional[str] = None  # Summary of previous synthesis
     addressed_issues: List[str] = field(default_factory=list)  # Issues resolved this iteration
+    # Knowledge context from RAG retrieval
+    knowledge_context: Optional[str] = None
     
     def has_work_remaining(self) -> bool:
         """Check if there are gaps or issues requiring more synthesis."""
@@ -256,6 +260,11 @@ Your plans must be structured with clear sections:
         if planner_context.context:
             context_str = f"\n\nAdditional Context:\n{planner_context.context}"
         
+        # Build knowledge context string (from RAG retrieval)
+        knowledge_str = ""
+        if planner_context.knowledge_context:
+            knowledge_str = f"\n\n## RETRIEVED KNOWLEDGE (use as reference):\n{planner_context.knowledge_context}"
+        
         # Build data config info
         data_info = ""
         if planner_context.data_config:
@@ -278,6 +287,7 @@ Simulation Configuration:
 ## OBJECTIVE
 {planner_context.objective}
 {context_str}
+{knowledge_str}
 
 ## AVAILABLE AGENTS
 {', '.join(planner_context.available_agents)}

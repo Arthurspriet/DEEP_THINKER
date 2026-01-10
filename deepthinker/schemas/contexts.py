@@ -76,6 +76,8 @@ class ResearchContextSchema(SchemaBase):
     unresolved_questions: List[str] = field(default_factory=list)
     requires_evidence: bool = False
     subgoals: List[str] = field(default_factory=list)
+    # RAG knowledge context (Sprint 35)
+    knowledge_context: Optional[str] = None
 
 
 @dataclass
@@ -98,6 +100,8 @@ class PlannerContextSchema(SchemaBase):
     quality_threshold: float = 7.0
     data_config: Optional[Any] = None
     simulation_config: Optional[Any] = None
+    # RAG knowledge context (Sprint 35)
+    knowledge_context: Optional[str] = None
 
 
 @dataclass
@@ -121,6 +125,8 @@ class SynthesisContextSchema(SchemaBase):
     max_iterations: int = 3
     prior_synthesis_summary: Optional[str] = None
     addressed_issues: List[str] = field(default_factory=list)
+    # RAG knowledge context (Sprint 35)
+    knowledge_context: Optional[str] = None
 
 
 @dataclass
@@ -140,6 +146,8 @@ class EvaluatorContextSchema(SchemaBase):
     prior_evaluations: Optional[str] = None
     quality_threshold: float = 7.0
     focus_areas: List[str] = field(default_factory=list)
+    # RAG knowledge context (Sprint 35)
+    knowledge_context: Optional[str] = None
 
 
 @dataclass
@@ -159,6 +167,8 @@ class CoderContextSchema(SchemaBase):
     language: str = "python"
     style_guidelines: Optional[str] = None
     test_requirements: bool = True
+    # RAG knowledge context (Sprint 35)
+    knowledge_context: Optional[str] = None
 
 
 @dataclass
@@ -178,6 +188,8 @@ class SimulationContextSchema(SchemaBase):
     constraints: List[str] = field(default_factory=list)
     success_criteria: List[str] = field(default_factory=list)
     max_iterations: int = 100
+    # RAG knowledge context (Sprint 35)
+    knowledge_context: Optional[str] = None
 
 
 # =============================================================================

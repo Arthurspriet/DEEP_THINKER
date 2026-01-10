@@ -390,3 +390,4 @@ class BlindedEvaluator:
             "integrity_violations": view.integrity_flags.violation_count,
         }
 
+

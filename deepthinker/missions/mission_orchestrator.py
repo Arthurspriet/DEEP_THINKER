@@ -1614,6 +1614,38 @@ class MissionOrchestrator:
                 if seeded:
                     state.log(f"Seeded {len(seeded)} hypotheses from past missions")
             
+            # NEW: Retrieve comprehensive knowledge context (RAG integration)
+            knowledge_summary = self.memory.reason_over(objective=state.objective, limit=10)
+            
+            # Always initialize knowledge_context on state
+            state.knowledge_context = {
+                "formatted": "",
+                "prior_knowledge": [],
+                "known_gaps": [],
+                "sources": [],
+                "items_count": 0,
+            }
+            
+            if knowledge_summary.get("used_in_prompt"):
+                formatted_knowledge = self.memory.format_for_prompt(knowledge_summary)
+                
+                # Store knowledge context in mission state for use by councils
+                state.knowledge_context = {
+                    "formatted": formatted_knowledge,
+                    "prior_knowledge": knowledge_summary.get("prior_knowledge", []),
+                    "known_gaps": knowledge_summary.get("known_gaps", []),
+                    "sources": knowledge_summary.get("memory_sources", []),
+                    "items_count": knowledge_summary.get("memory_used_count", 0),
+                }
+                
+                state.log(
+                    f"Knowledge context: {knowledge_summary.get('memory_used_count', 0)} items "
+                    f"from RAG (sources: {', '.join(knowledge_summary.get('memory_sources', [])[:3])})"
+                )
+            else:
+                # Log why knowledge was not populated
+                state.log(f"No relevant knowledge found for objective (used_in_prompt=False)")
+            
             state.log("Memory system initialized")
             
         except Exception as e:
@@ -6393,6 +6425,22 @@ Focus on actionable insights and testable predictions."""
                 include_gaps=True
             )
             
+            # Also populate state.knowledge_context if we have formatted knowledge
+            if formatted and hasattr(state, 'knowledge_context'):
+                if not state.knowledge_context.get("formatted"):
+                    state.knowledge_context["formatted"] = formatted
+                    state.knowledge_context["prior_knowledge"] = memory_summary.get("prior_knowledge", [])
+                    state.knowledge_context["sources"] = memory_summary.get("memory_sources", [])
+                    state.knowledge_context["items_count"] = memory_summary.get("memory_used_count", 0)
+            elif formatted and not hasattr(state, 'knowledge_context'):
+                state.knowledge_context = {
+                    "formatted": formatted,
+                    "prior_knowledge": memory_summary.get("prior_knowledge", []),
+                    "known_gaps": memory_summary.get("known_gaps", []),
+                    "sources": memory_summary.get("memory_sources", []),
+                    "items_count": memory_summary.get("memory_used_count", 0),
+                }
+            
             if formatted:
                 return formatted
             
@@ -6521,6 +6569,11 @@ Focus on actionable insights and testable predictions."""
         if hasattr(state, 'constraints') and state.constraints.effort.value in ["deep", "marathon"]:
             requires_evidence = True
         
+        # Get knowledge context from state if available
+        knowledge_ctx = None
+        if hasattr(state, 'knowledge_context') and state.knowledge_context:
+            knowledge_ctx = state.knowledge_context.get("formatted", "")
+        
         research_context = ResearchContext(
             objective=f"{state.objective}\n\nPhase: {phase.name}\n{phase.description}",
             prior_knowledge=context if context else None,
@@ -6529,7 +6582,8 @@ Focus on actionable insights and testable predictions."""
             data_needs=data_needs,
             unresolved_questions=unresolved_questions,
             requires_evidence=requires_evidence,
-            subgoals=subgoals
+            subgoals=subgoals,
+            knowledge_context=knowledge_ctx,
         )
         
         # Log iteration context
@@ -6573,7 +6627,8 @@ Focus on actionable insights and testable predictions."""
             data_needs=data_needs,
             unresolved_questions=unresolved_questions,
             requires_evidence=requires_evidence,
-            subgoals=subgoals
+            subgoals=subgoals,
+            knowledge_context=knowledge_ctx,
         )
         
         # Verbose logging: council activation
@@ -6713,11 +6768,17 @@ Focus on actionable insights and testable predictions."""
         
         context = self._get_accumulated_context(state)
         
+        # Get knowledge context from state if available
+        knowledge_ctx = None
+        if hasattr(state, 'knowledge_context') and state.knowledge_context:
+            knowledge_ctx = state.knowledge_context.get("formatted", "")
+        
         # Use planner for design
         planner_context = PlannerContext(
             objective=f"{state.objective}\n\nPhase: {phase.name}\n{phase.description}",
             context={"prior_work": context},
-            max_iterations=min(3, state.constraints.max_iterations)
+            max_iterations=min(3, state.constraints.max_iterations),
+            knowledge_context=knowledge_ctx,
         )
         
         # Verbose logging: council activation
@@ -6767,10 +6828,17 @@ Focus on actionable insights and testable predictions."""
             self._prepare_council_for_execution(self.evaluator, state, decision)
             
             design_content = phase.artifacts.get("design") or phase.artifacts.get("analysis", "")
+            
+            # Get knowledge context
+            eval_knowledge = None
+            if hasattr(state, 'knowledge_context') and state.knowledge_context:
+                eval_knowledge = state.knowledge_context.get("formatted", "")
+            
             eval_context = EvaluatorContext(
                 objective=f"Evaluate this design for: {state.objective}",
                 content_to_evaluate=design_content,  # Design document to evaluate
-                quality_threshold=6.0
+                quality_threshold=6.0,
+                knowledge_context=eval_knowledge,
             )
             eval_result = self.evaluator.execute(eval_context)
             if eval_result.success and eval_result.output:

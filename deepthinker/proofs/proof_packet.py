@@ -525,3 +525,4 @@ def hash_model_identifier(model_name: str) -> str:
     hash_bytes = hashlib.sha256(model_name.encode('utf-8')).hexdigest()[:16]
     return f"sha256:{hash_bytes}"
 
+

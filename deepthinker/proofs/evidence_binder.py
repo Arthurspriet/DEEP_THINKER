@@ -353,3 +353,4 @@ def get_evidence_binder(
         _binder.set_rag_store(rag_store)
     return _binder
 
+

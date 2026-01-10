@@ -119,17 +119,21 @@ class GeneralKnowledgeStore:
     """
     RAG store for static general knowledge data.
     
-    Designed for reference data like the CIA World Factbook that provides
-    factual information about countries, geography, economics, etc.
+    Designed for reference data like the CIA World Factbook and OWID datasets
+    that provides factual information about countries, geography, economics, etc.
     
     Unlike mission-specific stores, this data is:
     - Static (loaded once, updated infrequently)
     - Shared across all missions
-    - Searchable by semantic similarity and category filters
+    - Searchable by semantic similarity and category/source filters
     
     Storage: kb/general_knowledge/
     - index.npy: NumPy array of embeddings
     - documents.json: Document metadata and text
+    
+    Supported sources:
+    - cia_world_factbook: Country-level factual data
+    - owid: Our World in Data datasets (economics, health, environment, etc.)
     """
     
     def __init__(
@@ -166,6 +170,8 @@ class GeneralKnowledgeStore:
         self._embeddings: Optional[np.ndarray] = None
         self._country_index: Dict[str, List[int]] = {}  # country -> doc indices
         self._category_index: Dict[str, List[int]] = {}  # category -> doc indices
+        self._source_index: Dict[str, List[int]] = {}  # source (owid, cia) -> doc indices
+        self._dataset_index: Dict[str, List[int]] = {}  # dataset_name -> doc indices (for OWID)
         
         # Load existing data
         self._load()
@@ -204,11 +210,16 @@ class GeneralKnowledgeStore:
         
         logger.info(f"Created {len(all_chunks)} chunks from {len(data)} countries")
         
-        # Clear existing data
+        # Clear existing data (but preserve OWID data if present)
+        owid_docs = [d for d in self._documents if d.get("source") == "owid"]
+        owid_indices = self._source_index.get("owid", [])
+        
         self._documents = []
         self._embeddings = None
         self._country_index = {}
         self._category_index = {}
+        self._source_index = {}
+        self._dataset_index = {}
         
         # Process chunks with embedding
         embeddings_list = []
@@ -233,6 +244,7 @@ class GeneralKnowledgeStore:
             # Update indices
             country = chunk["country"]
             category = chunk["category"]
+            source = chunk.get("source", "cia_world_factbook")
             
             if country not in self._country_index:
                 self._country_index[country] = []
@@ -241,6 +253,10 @@ class GeneralKnowledgeStore:
             if category not in self._category_index:
                 self._category_index[category] = []
             self._category_index[category].append(doc_idx)
+            
+            if source not in self._source_index:
+                self._source_index[source] = []
+            self._source_index[source].append(doc_idx)
             
             # Progress callback
             if progress_callback and (i + 1) % 10 == 0:
@@ -266,6 +282,8 @@ class GeneralKnowledgeStore:
         top_k: int = 10,
         country_filter: Optional[str] = None,
         category_filter: Optional[str] = None,
+        source_filter: Optional[str] = None,
+        dataset_filter: Optional[str] = None,
         min_score: float = 0.3,
     ) -> List[Tuple[Dict[str, Any], float]]:
         """
@@ -274,8 +292,10 @@ class GeneralKnowledgeStore:
         Args:
             query: Search query text
             top_k: Maximum results to return
-            country_filter: Optional country name filter
-            category_filter: Optional category filter (geography, economy, etc.)
+            country_filter: Optional country name filter (CIA data)
+            category_filter: Optional category filter (geography, economy, environment, etc.)
+            source_filter: Optional source filter ("owid", "cia_world_factbook")
+            dataset_filter: Optional OWID dataset name filter
             min_score: Minimum similarity score
             
         Returns:
@@ -292,15 +312,23 @@ class GeneralKnowledgeStore:
         query_vec = np.array(query_embedding)
         
         # Determine candidate documents based on filters
-        if country_filter and category_filter:
-            # Intersection of country and category indices
-            country_docs = set(self._country_index.get(country_filter, []))
-            category_docs = set(self._category_index.get(category_filter, []))
-            candidate_indices = list(country_docs & category_docs)
-        elif country_filter:
-            candidate_indices = self._country_index.get(country_filter, [])
-        elif category_filter:
-            candidate_indices = self._category_index.get(category_filter, [])
+        candidate_sets = []
+        
+        if source_filter:
+            candidate_sets.append(set(self._source_index.get(source_filter, [])))
+        
+        if country_filter:
+            candidate_sets.append(set(self._country_index.get(country_filter, [])))
+        
+        if category_filter:
+            candidate_sets.append(set(self._category_index.get(category_filter, [])))
+        
+        if dataset_filter:
+            candidate_sets.append(set(self._dataset_index.get(dataset_filter, [])))
+        
+        # Compute intersection of all filters
+        if candidate_sets:
+            candidate_indices = list(set.intersection(*candidate_sets))
         else:
             candidate_indices = list(range(len(self._documents)))
         
@@ -323,6 +351,33 @@ class GeneralKnowledgeStore:
         results.sort(key=lambda x: x[1], reverse=True)
         
         return results[:top_k]
+    
+    def search_owid(
+        self,
+        query: str,
+        top_k: int = 10,
+        category_filter: Optional[str] = None,
+        min_score: float = 0.3,
+    ) -> List[Tuple[Dict[str, Any], float]]:
+        """
+        Search specifically in OWID datasets.
+        
+        Args:
+            query: Search query text
+            top_k: Maximum results to return
+            category_filter: Optional category (environment, health, economy, etc.)
+            min_score: Minimum similarity score
+            
+        Returns:
+            List of (document, score) tuples sorted by relevance
+        """
+        return self.search(
+            query=query,
+            top_k=top_k,
+            source_filter="owid",
+            category_filter=category_filter,
+            min_score=min_score,
+        )
     
     def get_country_info(
         self,
@@ -356,6 +411,31 @@ class GeneralKnowledgeStore:
         
         return docs
     
+    def get_dataset_info(
+        self,
+        dataset_name: str,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get all chunks for a specific OWID dataset.
+        
+        Args:
+            dataset_name: Dataset name (case-sensitive)
+            
+        Returns:
+            List of document chunks for the dataset
+        """
+        if dataset_name not in self._dataset_index:
+            # Try case-insensitive lookup
+            for stored_name in self._dataset_index:
+                if stored_name.lower() == dataset_name.lower():
+                    dataset_name = stored_name
+                    break
+            else:
+                return []
+        
+        indices = self._dataset_index[dataset_name]
+        return [self._documents[i] for i in indices]
+    
     def list_countries(self) -> List[str]:
         """Get list of all indexed countries."""
         return sorted(self._country_index.keys())
@@ -364,19 +444,55 @@ class GeneralKnowledgeStore:
         """Get list of all indexed categories."""
         return sorted(self._category_index.keys())
     
+    def list_sources(self) -> List[str]:
+        """Get list of all data sources (owid, cia_world_factbook, etc.)."""
+        return sorted(self._source_index.keys())
+    
+    def list_datasets(self, source: Optional[str] = None) -> List[str]:
+        """
+        Get list of all indexed datasets.
+        
+        Args:
+            source: Optional source filter (e.g., "owid")
+            
+        Returns:
+            List of dataset names
+        """
+        if source:
+            # Filter datasets by source
+            source_docs = set(self._source_index.get(source, []))
+            datasets = set()
+            for name, indices in self._dataset_index.items():
+                if any(idx in source_docs for idx in indices):
+                    datasets.add(name)
+            return sorted(datasets)
+        return sorted(self._dataset_index.keys())
+    
     def get_document_count(self) -> int:
         """Get total number of indexed documents."""
         return len(self._documents)
     
+    def get_document_count_by_source(self, source: str) -> int:
+        """Get number of documents from a specific source."""
+        return len(self._source_index.get(source, []))
+    
     def get_statistics(self) -> Dict[str, Any]:
         """Get store statistics."""
-        return {
+        stats = {
             "total_documents": len(self._documents),
             "countries_count": len(self._country_index),
             "categories_count": len(self._category_index),
+            "sources_count": len(self._source_index),
+            "datasets_count": len(self._dataset_index),
             "embedding_dimensions": self._embeddings.shape[1] if self._embeddings is not None and self._embeddings.size > 0 else 0,
             "storage_path": str(self._store_dir),
         }
+        
+        # Add per-source counts
+        for source, indices in self._source_index.items():
+            stats[f"documents_{source}"] = len(indices)
+        
+        return stats
     
     def persist(self) -> bool:
         """
@@ -388,11 +504,13 @@ class GeneralKnowledgeStore:
         try:
             self._store_dir.mkdir(parents=True, exist_ok=True)
             
-            # Save documents with indices
+            # Save documents with all indices
             docs_data = {
                 "documents": self._documents,
                 "country_index": self._country_index,
                 "category_index": self._category_index,
+                "source_index": self._source_index,
+                "dataset_index": self._dataset_index,
             }
             docs_path = self._store_dir / "documents.json"
             with open(docs_path, "w", encoding="utf-8") as f:
@@ -423,6 +541,8 @@ class GeneralKnowledgeStore:
                 self._documents = data.get("documents", [])
                 self._country_index = data.get("country_index", {})
                 self._category_index = data.get("category_index", {})
+                self._source_index = data.get("source_index", {})
+                self._dataset_index = data.get("dataset_index", {})
                 
                 logger.debug(f"Loaded {len(self._documents)} documents from general knowledge store")
             
@@ -437,6 +557,8 @@ class GeneralKnowledgeStore:
             self._embeddings = np.array([])
             self._country_index = {}
             self._category_index = {}
+            self._source_index = {}
+            self._dataset_index = {}
     
     def is_loaded(self) -> bool:
         """Check if store has data loaded."""

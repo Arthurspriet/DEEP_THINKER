@@ -38,11 +38,14 @@ class ExplorerContext:
         focus_areas: Optional areas to prioritize
         time_budget_seconds: Max time for exploration
         max_depth: How deep to explore (1=surface, 2=moderate, 3=detailed)
+        knowledge_context: Optional knowledge from RAG retrieval
     """
     objective: str
     focus_areas: List[str] = field(default_factory=list)
     time_budget_seconds: int = 60
     max_depth: int = 1
+    # Knowledge context from RAG retrieval
+    knowledge_context: Optional[str] = None
     
     def validate(self) -> bool:
         """Validate the context."""
@@ -285,6 +288,11 @@ Be concise. Maximum 2000 tokens."""
                 f"- {area}" for area in context.focus_areas
             )
         
+        # Build knowledge context (from RAG retrieval)
+        knowledge_str = ""
+        if context.knowledge_context:
+            knowledge_str = f"\n\n### Retrieved Knowledge:\n{context.knowledge_context}"
+        
         depth_instruction = ""
         if context.max_depth == 1:
             depth_instruction = "\nStay at SURFACE LEVEL. Quick scan only."
@@ -300,6 +308,7 @@ Explore and map the following objective:
 ### OBJECTIVE
 {context.objective}
 {focus_str}
+{knowledge_str}
 {depth_instruction}
 
 Produce a LANDSCAPE MAP with:

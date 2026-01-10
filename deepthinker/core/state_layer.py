@@ -971,3 +971,4 @@ def get_state_layer() -> StateLayer:
     """Get the global state layer."""
     return state_layer
 
+

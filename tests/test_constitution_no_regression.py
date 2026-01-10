@@ -296,3 +296,4 @@ class TestInvariantToggling:
                               if "goodhart" in v.lower() or "divergence" in v.lower()]
         assert len(goodhart_violations) == 0
 
+

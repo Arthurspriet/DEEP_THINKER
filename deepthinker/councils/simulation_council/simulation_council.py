@@ -23,6 +23,8 @@ class SimulationContext:
     simulation_config: Optional[Any] = None
     execution_results: Optional[Dict[str, Any]] = None
     focus_scenarios: Optional[List[str]] = None
+    # Knowledge context from RAG retrieval
+    knowledge_context: Optional[str] = None
 
 
 @dataclass
@@ -223,6 +225,11 @@ Consider these results in your simulation analysis.
                 f"- {s}" for s in simulation_context.focus_scenarios
             )
         
+        # Build knowledge context (from RAG retrieval)
+        knowledge_str = ""
+        if simulation_context.knowledge_context:
+            knowledge_str = f"\n\n## RETRIEVED KNOWLEDGE (use as reference):\n{simulation_context.knowledge_context}"
+        
         prompt = f"""Analyze the following code and generate comprehensive simulation scenarios:
 
 ## OBJECTIVE
@@ -234,6 +241,7 @@ Consider these results in your simulation analysis.
 ```
 {exec_str}
 {focus_str}
+{knowledge_str}
 
 ## INSTRUCTIONS
 Generate a thorough simulation analysis including:

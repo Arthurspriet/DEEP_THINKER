@@ -871,3 +871,4 @@ def require_safety_module(name: str, export: Optional[str] = None) -> Any:
     """Require a safety module (raises if unavailable)."""
     return safety.require(name, export)
 
+

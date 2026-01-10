@@ -379,3 +379,4 @@ class TestConfigurationModes:
         assert config_enforce.is_enabled
         assert config_enforce.is_enforcing
 
+

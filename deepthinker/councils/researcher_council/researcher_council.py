@@ -419,6 +419,8 @@ class ResearchContext:
     unresolved_questions: List[str] = field(default_factory=list)
     requires_evidence: bool = False
     subgoals: List[str] = field(default_factory=list)
+    # Knowledge context from RAG retrieval
+    knowledge_context: Optional[str] = None
 
 
 @dataclass
@@ -795,6 +797,11 @@ Your research output should include:
         if research_context.prior_knowledge:
             prior_str = f"\n\n## EXISTING KNOWLEDGE (foundation - do not repeat):\n{research_context.prior_knowledge}"
         
+        # Build retrieved knowledge context (from RAG)
+        knowledge_str = ""
+        if research_context.knowledge_context:
+            knowledge_str = f"\n\n## RETRIEVED KNOWLEDGE (use as reference):\n{research_context.knowledge_context}"
+        
         # Build constraints
         constraints_str = ""
         if research_context.constraints:
@@ -813,6 +820,7 @@ You are deepening existing research, NOT starting fresh.
 ## OBJECTIVE
 {research_context.objective}
 {prior_str}
+{knowledge_str}
 {focus_str}
 {questions_str}
 {data_needs_str}
@@ -874,6 +882,7 @@ Conduct thorough research on the following objective:
 {research_context.objective}
 {focus_str}
 {prior_str}
+{knowledge_str}
 {constraints_str}
 {planner_str}
 

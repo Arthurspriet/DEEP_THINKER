@@ -102,6 +102,7 @@ class EvidenceContext:
         hypotheses_to_validate: Hypotheses that need evidence
         allow_web_search: Whether web search is enabled
         max_sources: Maximum sources to gather per question
+        knowledge_context: Optional knowledge from RAG retrieval
     """
     objective: str
     questions: List[str] = field(default_factory=list)
@@ -109,6 +110,8 @@ class EvidenceContext:
     hypotheses_to_validate: List[str] = field(default_factory=list)
     allow_web_search: bool = True
     max_sources: int = 5
+    # Knowledge context from RAG retrieval
+    knowledge_context: Optional[str] = None
     
     def validate(self) -> bool:
         """Validate the context."""
@@ -425,6 +428,11 @@ Be thorough and cite sources. Quality over speed."""
                 f"- {h}" for h in context.hypotheses_to_validate
             )
         
+        # Build knowledge context (from RAG retrieval)
+        knowledge_str = ""
+        if context.knowledge_context:
+            knowledge_str = f"\n\n### Retrieved Knowledge (use as reference):\n{context.knowledge_context}"
+        
         prompt = f"""## EVIDENCE GATHERING MISSION
 
 ### Objective
@@ -434,6 +442,7 @@ Be thorough and cite sources. Quality over speed."""
 {questions_str}
 {prior_str}
 {hypotheses_str}
+{knowledge_str}
 
 For EACH question:
 1. Find evidence that answers it

@@ -81,6 +81,31 @@ except ImportError as e:
     MEMORY_MANAGER_AVAILABLE = False
     MemoryManager = None
 
+try:
+    from .knowledge_router import (
+        KnowledgeRouter,
+        KnowledgeItem,
+        RoutedKnowledge,
+        get_knowledge_router,
+        route_knowledge_for_persona,
+        route_knowledge_for_council,
+        enrich_context,
+        PERSONA_DOMAIN_MAPPING,
+        COUNCIL_DOMAIN_MAPPING,
+    )
+    KNOWLEDGE_ROUTER_AVAILABLE = True
+except ImportError as e:
+    KNOWLEDGE_ROUTER_AVAILABLE = False
+    KnowledgeRouter = None
+    KnowledgeItem = None
+    RoutedKnowledge = None
+    get_knowledge_router = None
+    route_knowledge_for_persona = None
+    route_knowledge_for_council = None
+    enrich_context = None
+    PERSONA_DOMAIN_MAPPING = {}
+    COUNCIL_DOMAIN_MAPPING = {}
+
 # Check if full memory system is available
 MEMORY_SYSTEM_AVAILABLE = all([
     STRUCTURED_STATE_AVAILABLE,
@@ -117,6 +142,16 @@ __all__ = [
     "GeneralKnowledgeStore",
     "SummaryMemory",
     "MemoryManager",
+    # Knowledge Router
+    "KnowledgeRouter",
+    "KnowledgeItem",
+    "RoutedKnowledge",
+    "get_knowledge_router",
+    "route_knowledge_for_persona",
+    "route_knowledge_for_council",
+    "enrich_context",
+    "PERSONA_DOMAIN_MAPPING",
+    "COUNCIL_DOMAIN_MAPPING",
     # Availability flags
     "MEMORY_SYSTEM_AVAILABLE",
     "STRUCTURED_STATE_AVAILABLE",
@@ -124,5 +159,6 @@ __all__ = [
     "GENERAL_KNOWLEDGE_AVAILABLE",
     "SUMMARY_MEMORY_AVAILABLE",
     "MEMORY_MANAGER_AVAILABLE",
+    "KNOWLEDGE_ROUTER_AVAILABLE",
 ]
 

@@ -164,3 +164,4 @@ def get_blocked_reason(flags: ConstitutionFlags) -> Optional[str]:
         return None
     return "; ".join(flags.violations)
 
+

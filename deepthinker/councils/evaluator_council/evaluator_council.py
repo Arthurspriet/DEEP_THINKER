@@ -40,6 +40,8 @@ class EvaluatorContext:
     research_findings: Optional[str] = None
     # Prior analysis context for deep analysis phase
     prior_analysis: Optional[str] = None
+    # Knowledge context from RAG retrieval
+    knowledge_context: Optional[str] = None
 
 
 @dataclass
@@ -53,6 +55,8 @@ class ResearchEvaluationContext:
     web_searches_performed: int = 0
     iteration: int = 1
     prior_gaps: List[str] = field(default_factory=list)  # Gaps from previous iteration
+    # Knowledge context from RAG retrieval
+    knowledge_context: Optional[str] = None
 
 
 @dataclass
@@ -319,6 +323,14 @@ Compare to the previous evaluation and note improvements or regressions.
 Consider this prior analysis context in your evaluation.
 """
         
+        # Build knowledge context (from RAG retrieval)
+        knowledge_str = ""
+        if evaluator_context.knowledge_context:
+            knowledge_str = f"""
+## RETRIEVED KNOWLEDGE (use as reference)
+{evaluator_context.knowledge_context}
+"""
+        
         prompt = f"""Evaluate the following code against the stated objective:
 
 ## OBJECTIVE
@@ -331,6 +343,7 @@ Consider this prior analysis context in your evaluation.
 {metric_str}
 {prev_eval_str}
 {prior_analysis_str}
+{knowledge_str}
 ## EVALUATION CRITERIA
 1. **Correctness**: Does the code correctly implement the objective?
 2. **Code Quality**: Is the code clean, readable, and well-structured?

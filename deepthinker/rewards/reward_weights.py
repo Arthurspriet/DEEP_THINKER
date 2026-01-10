@@ -144,3 +144,4 @@ class RewardWeights:
 # Default weights instance
 DEFAULT_REWARD_WEIGHTS = RewardWeights()
 
+

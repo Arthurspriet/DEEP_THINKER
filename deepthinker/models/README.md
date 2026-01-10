@@ -118,3 +118,4 @@ OLLAMA_API_BASE=http://localhost:11434
 OLLAMA_MODEL=deepseek-r1:8b  # Default model
 ```
 
+

@@ -79,3 +79,4 @@ The Arbiter works alongside consensus mechanisms:
 2. If consensus fails or needs validation → **Arbiter** decides
 3. Arbiter decision is final and logged
 
+
