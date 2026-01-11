@@ -1,0 +1,51 @@
+# Bio Pattern: Predator-Prey Dynamics
+# Adversarial falsification and challenge
+
+id: BIO_PREDATOR_PREY_001
+name: Predator-Prey Falsification Pattern
+problem_class:
+  - adversarial_testing
+  - falsification
+  - robustness_testing
+  - challenge_response
+
+conditions:
+  - High confidence conclusions forming
+  - Need for stress testing
+  - Validation before commitment
+  - Potential blind spots in reasoning
+
+mechanism: |
+  Predator-prey dynamics drive co-evolution - prey develop defenses,
+  predators develop counter-strategies. This arms race strengthens both.
+  In reasoning, this maps to actively challenging conclusions through
+  adversarial falsification attempts, strengthening valid conclusions
+  and exposing weaknesses.
+
+system_mapping:
+  force_falsification_step: true
+  redundancy_check: true
+  confidence_penalty_delta: 0.05
+  council_diversity_min: 2
+
+expected_tradeoffs:
+  benefits:
+    - Stress-tests conclusions
+    - Exposes hidden weaknesses
+    - Increases robustness of final output
+  risks:
+    - May undermine valid conclusions
+    - Adversarial overhead
+
+tests:
+  - Should always enable force_falsification_step
+  - Should require diverse council for challenge
+  - Should apply moderate confidence penalty
+
+citations:
+  - "Dawkins, R. The Selfish Gene (Arms Race)"
+  - "Van Valen, L. A New Evolutionary Law (Red Queen)"
+
+maturity: draft
+weight: 0.35
+

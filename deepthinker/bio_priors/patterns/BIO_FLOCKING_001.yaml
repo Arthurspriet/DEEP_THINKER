@@ -1,0 +1,49 @@
+# Bio Pattern: Flocking Behavior
+# Coordinated movement and consensus formation
+
+id: BIO_FLOCKING_001
+name: Flocking Consensus Pattern
+problem_class:
+  - consensus_formation
+  - coordination
+  - collective_decision
+  - alignment_maintenance
+
+conditions:
+  - Multiple models/views producing outputs
+  - Need for coordinated conclusion
+  - Disagreement between perspectives
+  - Synthesis phase approaching
+
+mechanism: |
+  Flocking emerges from simple rules: separation, alignment, and cohesion.
+  Each bird adjusts based on neighbors. In reasoning, this maps to models
+  adjusting conclusions based on peer outputs, maintaining diversity while
+  moving toward consensus without requiring central coordination.
+
+system_mapping:
+  council_diversity_min: 3
+  redundancy_check: true
+  exploration_bias_delta: -0.05
+
+expected_tradeoffs:
+  benefits:
+    - Natural consensus emergence
+    - Maintains valuable diversity
+    - Robust to individual errors
+  risks:
+    - May follow incorrect majority
+    - Slower convergence than dictatorial approaches
+
+tests:
+  - Should increase council diversity requirement
+  - Should enable redundancy checking
+  - Should slightly reduce exploration (cohesion)
+
+citations:
+  - "Reynolds, C. W. Flocks, Herds, and Schools"
+  - "Couzin, I. D. Collective Cognition in Animal Groups"
+
+maturity: draft
+weight: 0.3
+

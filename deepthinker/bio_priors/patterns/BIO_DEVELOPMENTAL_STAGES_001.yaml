@@ -1,0 +1,49 @@
+# Bio Pattern: Developmental Stages
+# Phase-appropriate behavior based on maturity
+
+id: BIO_DEVELOPMENTAL_STAGES_001
+name: Developmental Stages Pattern
+problem_class:
+  - phase_adaptation
+  - maturity_progression
+  - developmental_timing
+  - stage_appropriate_behavior
+
+conditions:
+  - Transition between phases
+  - Early vs late stage reasoning
+  - Need for phase-appropriate strategy
+  - Maturity-dependent resource allocation
+
+mechanism: |
+  Organisms progress through developmental stages with distinct behaviors
+  appropriate to each stage - embryonic cells explore; mature cells
+  specialize. In reasoning, early phases should explore broadly while
+  later phases should consolidate and verify.
+
+system_mapping:
+  exploration_bias_delta: 0.1
+  depth_budget_delta: 1
+  retrieval_diversify: true
+
+expected_tradeoffs:
+  benefits:
+    - Appropriate behavior for each phase
+    - Efficient resource allocation over time
+    - Natural progression toward convergence
+  risks:
+    - Phase detection may be inaccurate
+    - Rigid staging may miss opportunities
+
+tests:
+  - In early phase (step_index < 3), should favor exploration
+  - In late phase, should favor verification
+  - depth_budget_delta should support current phase needs
+
+citations:
+  - "Gilbert, S. F. Developmental Biology"
+  - "Wolpert, L. Principles of Development"
+
+maturity: draft
+weight: 0.3
+

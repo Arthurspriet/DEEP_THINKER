@@ -1,0 +1,49 @@
+# Bio Pattern: Ant Trail Pheromones
+# Stigmergic reinforcement of successful paths
+
+id: BIO_ANT_TRAILS_001
+name: Ant Trail Pheromone Pattern
+problem_class:
+  - path_reinforcement
+  - collective_search
+  - stagnation_recovery
+  - distributed_optimization
+
+conditions:
+  - Multiple search paths available
+  - Some paths yielding better results
+  - Need to coordinate exploration
+  - Evidence production varying by approach
+
+mechanism: |
+  Ants deposit pheromones on successful paths, creating a positive feedback
+  loop that guides colony foraging. Paths with more pheromones attract more
+  ants. In reasoning, this maps to reinforcing approaches that yield evidence
+  while allowing alternative paths to be explored with lower priority.
+
+system_mapping:
+  exploration_bias_delta: 0.1
+  retrieval_diversify: true
+  council_diversity_min: 2
+
+expected_tradeoffs:
+  benefits:
+    - Efficiently exploits successful approaches
+    - Maintains exploration of alternatives
+    - Emergent optimization without central control
+  risks:
+    - May converge prematurely on suboptimal paths
+    - Pheromone (memory) decay needs management
+
+tests:
+  - When stagnation detected, pattern should encourage diversification
+  - council_diversity_min should be >= 2
+  - Should balance exploration and exploitation
+
+citations:
+  - "Dorigo, M. Ant Colony Optimization"
+  - "Bonabeau, E. Swarm Intelligence"
+
+maturity: draft
+weight: 0.35
+

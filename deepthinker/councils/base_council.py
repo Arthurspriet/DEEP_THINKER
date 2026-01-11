@@ -1194,9 +1194,10 @@ PROCEED WITH THE ASSIGNED ANALYSIS:
         phase: Optional["MissionPhase"] = None
     ) -> Any:
         """
-        Escalate empty output by retrying with stronger model.
+        Escalate empty output by retrying with stronger model and enhanced prompt.
         
-        Phase 7.2: Retries with REASONING tier model if available.
+        Phase 7.2: Retries with REASONING/LARGE tier models if available.
+        Now works without supervisor using model_pool directly.
         
         Args:
             original_output: Original empty output
@@ -1210,80 +1211,142 @@ PROCEED WITH THE ASSIGNED ANALYSIS:
         import logging
         logger = logging.getLogger(__name__)
         
-        # Only escalate if supervisor is available
-        if not self.supervisor:
-            logger.warning(f"[{self.council_name}] No supervisor available for escalation")
-            return original_output
-        
         try:
-            # Get fallback decision with REASONING tier model
+            # Get fallback decision with REASONING or LARGE tier model
             from ..models.model_registry import ModelRegistry, ModelTier
             registry = ModelRegistry()
             
-            # Find REASONING tier models
-            reasoning_models = [
-                name for name, info in registry._models.items()
-                if info.tier == ModelTier.REASONING and info.is_available
-            ]
+            # Find stronger models (REASONING first, then LARGE)
+            escalation_models = []
+            for tier in [ModelTier.REASONING, ModelTier.LARGE]:
+                for name, info in registry._models.items():
+                    if info.tier == tier and info.is_available and name not in escalation_models:
+                        escalation_models.append(name)
             
-            if not reasoning_models:
-                logger.warning(f"[{self.council_name}] No REASONING tier models available for escalation")
+            # Also try known strong models directly
+            known_strong_models = ["gemma3:27b", "cogito:14b", "devstral:latest"]
+            for model in known_strong_models:
+                if model not in escalation_models:
+                    escalation_models.append(model)
+            
+            if not escalation_models:
+                logger.warning(f"[{self.council_name}] No escalation models available")
                 return original_output
             
-            # Use first available REASONING model
-            escalation_model = reasoning_models[0]
-            logger.info(
-                f"[{self.council_name}] Empty output detected, retrying with {escalation_model}"
-            )
+            # Identify which fields were empty for enhanced prompt
+            empty_fields = self._get_empty_fields(original_output)
             
-            # Retry with single strong model
-            escalation_output_str = self.model_pool.run_single(
-                model_name=escalation_model,
-                prompt=prompt,
-                system_prompt=system_prompt,
-                temperature=0.5
-            )
+            # Build enhanced prompt that explicitly requests the missing fields
+            enhanced_prompt = self._build_enhanced_escalation_prompt(prompt, empty_fields)
             
-            if escalation_output_str and len(escalation_output_str) > 50:
-                # Postprocess escalated output
-                escalated_output = self.postprocess(escalation_output_str)
-                
-                # Check if escalated output is still empty
-                escalated_dict = {}
-                if hasattr(escalated_output, '__dict__'):
-                    escalated_dict = escalated_output.__dict__
-                elif isinstance(escalated_output, dict):
-                    escalated_dict = escalated_output
-                
-                # Verify escalation worked
-                key_fields = ['scenarios', 'trade_offs', 'key_points', 'findings', 'risks', 'opportunities']
-                has_content = any(
-                    len(escalated_dict.get(field, [])) > 0 for field in key_fields
-                    if field in escalated_dict
+            # Try escalation models in sequence until one works
+            for escalation_model in escalation_models[:3]:  # Try up to 3 models
+                logger.info(
+                    f"[{self.council_name}] Empty output (fields: {empty_fields}), "
+                    f"retrying with {escalation_model}"
                 )
                 
-                if has_content:
-                    logger.info(f"[{self.council_name}] Escalation successful, output now has content")
-                    
-                    # Decision Accountability: Emit EMPTY_OUTPUT_ESCALATION decision
-                    self._emit_empty_output_escalation_decision(
-                        empty_fields=key_fields,
-                        from_model="original",
-                        to_model=escalation_model,
-                        phase=phase,
+                try:
+                    # Retry with stronger model using model_pool directly
+                    escalation_output_str = self.model_pool.run_single(
+                        model_name=escalation_model,
+                        prompt=enhanced_prompt,
+                        system_prompt=system_prompt,
+                        temperature=0.5
                     )
                     
-                    return escalated_output
-                else:
-                    logger.warning(f"[{self.council_name}] Escalation failed, output still empty")
-                    return original_output
-            else:
-                logger.warning(f"[{self.council_name}] Escalation model execution failed or produced empty output")
-                return original_output
+                    if escalation_output_str and len(escalation_output_str) > 50:
+                        # Postprocess escalated output
+                        escalated_output = self.postprocess(escalation_output_str)
+                        
+                        # Verify escalation worked
+                        if not self._is_output_empty(escalated_output):
+                            logger.info(f"[{self.council_name}] Escalation successful with {escalation_model}")
+                            
+                            # Decision Accountability: Emit EMPTY_OUTPUT_ESCALATION decision
+                            self._emit_empty_output_escalation_decision(
+                                empty_fields=empty_fields,
+                                from_model="original",
+                                to_model=escalation_model,
+                                phase=phase,
+                            )
+                            
+                            return escalated_output
+                        else:
+                            logger.warning(f"[{self.council_name}] {escalation_model} still produced empty fields")
+                except Exception as model_error:
+                    logger.warning(f"[{self.council_name}] {escalation_model} failed: {model_error}")
+                    continue
+            
+            logger.warning(f"[{self.council_name}] Escalation failed, output still empty")
+            return original_output
                 
         except Exception as e:
             logger.error(f"[{self.council_name}] Escalation error: {e}")
             return original_output
+    
+    def _get_empty_fields(self, output: Any) -> List[str]:
+        """Get list of empty fields from output."""
+        empty_fields = []
+        
+        output_dict = {}
+        if hasattr(output, '__dict__'):
+            output_dict = output.__dict__
+        elif isinstance(output, dict):
+            output_dict = output
+        
+        # Check council-specific fields
+        if self.council_name == "planner_council":
+            if not output_dict.get('scenarios', []):
+                empty_fields.append("scenarios")
+            if not output_dict.get('trade_offs', []):
+                empty_fields.append("trade_offs")
+        elif self.council_name == "researcher_council":
+            if not output_dict.get('key_points', []) and not output_dict.get('findings', []):
+                empty_fields.append("findings")
+        elif self.council_name == "evaluator_council":
+            if not output_dict.get('risks', []):
+                empty_fields.append("risks")
+            if not output_dict.get('opportunities', []):
+                empty_fields.append("opportunities")
+        elif self.council_name == "simulation_council":
+            if not output_dict.get('scenarios', []):
+                empty_fields.append("scenarios")
+        
+        return empty_fields
+    
+    def _build_enhanced_escalation_prompt(self, original_prompt: str, empty_fields: List[str]) -> str:
+        """Build enhanced prompt that explicitly requests missing fields."""
+        if not empty_fields:
+            return original_prompt
+        
+        fields_str = ", ".join(empty_fields)
+        enhancement = f"""
+
+IMPORTANT: The previous response was missing required fields: {fields_str}
+
+YOU MUST provide content for these fields:
+{chr(10).join(f'- {field}: Provide at least 2-3 items' for field in empty_fields)}
+
+Do not leave these fields empty. Be specific and provide concrete examples or analysis.
+"""
+        return original_prompt + enhancement
+    
+    def _is_output_empty(self, output: Any) -> bool:
+        """Check if output has empty required fields."""
+        output_dict = {}
+        if hasattr(output, '__dict__'):
+            output_dict = output.__dict__
+        elif isinstance(output, dict):
+            output_dict = output
+        
+        key_fields = ['scenarios', 'trade_offs', 'key_points', 'findings', 'risks', 'opportunities']
+        has_content = any(
+            len(output_dict.get(field, [])) > 0 for field in key_fields
+            if field in output_dict
+        )
+        
+        return not has_content
     
     def _emit_empty_output_escalation_decision(
         self,
@@ -1339,20 +1402,61 @@ PROCEED WITH THE ASSIGNED ANALYSIS:
         """
         self._decision_emitter = emitter
     
-    def _track_resource_usage(self, output: Any) -> None:
+    def _track_resource_usage(self, output: Any, enforce: bool = True) -> Any:
         """
-        Track resource usage via CognitiveSpine.
+        Track resource usage via CognitiveSpine and optionally enforce limits.
         
         Args:
             output: The output to track
+            enforce: Whether to enforce budget limits by truncating output
+            
+        Returns:
+            Output (possibly truncated if budget exceeded and enforce=True)
         """
         if self._cognitive_spine is None:
-            return
+            return output
         
+        # Get the resource budget for this council
+        budget = self._cognitive_spine.get_budget(self.council_name)
+        
+        if budget is None:
+            self._cognitive_spine.track_output(output, self.council_name)
+            return output
+        
+        # Calculate output size
+        output_chars = 0
+        if isinstance(output, str):
+            output_chars = len(output)
+        elif hasattr(output, '__dict__'):
+            output_chars = len(str(output.__dict__))
+        elif isinstance(output, dict):
+            output_chars = len(str(output))
+        
+        # Check if we would exceed budget
+        remaining = budget.remaining_output_chars()
+        
+        if enforce and output_chars > remaining:
+            logger.warning(
+                f"[{self.council_name}] Output ({output_chars} chars) exceeds remaining budget "
+                f"({remaining} chars). Truncating output."
+            )
+            
+            # Truncate the output
+            if isinstance(output, str):
+                output = budget.truncate_to_budget(output)
+                output_chars = len(output)
+            elif hasattr(output, 'raw_output') and isinstance(output.raw_output, str):
+                output.raw_output = budget.truncate_to_budget(output.raw_output)
+                output_chars = len(output.raw_output)
+        
+        # Track the (possibly truncated) output
+        budget.add_chars(output_chars)
         self._cognitive_spine.track_output(output, self.council_name)
         
-        if self._cognitive_spine.is_budget_exceeded(self.council_name):
-            logger.warning(f"[{self.council_name}] Resource budget exceeded")
+        if budget.is_exceeded():
+            logger.warning(f"[{self.council_name}] Resource budget exhausted after this output")
+        
+        return output
     
     def is_resource_budget_exceeded(self) -> bool:
         """
@@ -1364,6 +1468,25 @@ PROCEED WITH THE ASSIGNED ANALYSIS:
         if self._cognitive_spine is None:
             return False
         return self._cognitive_spine.is_budget_exceeded(self.council_name)
+    
+    def get_remaining_budget(self) -> Dict[str, int]:
+        """
+        Get remaining resource budget.
+        
+        Returns:
+            Dict with remaining tokens and chars, or empty if no spine
+        """
+        if self._cognitive_spine is None:
+            return {"tokens": 999999, "chars": 999999}
+        
+        budget = self._cognitive_spine.get_budget(self.council_name)
+        if budget is None:
+            return {"tokens": 999999, "chars": 999999}
+        
+        return {
+            "tokens": budget.remaining_tokens(),
+            "chars": budget.remaining_output_chars()
+        }
     
     def _check_and_consume_reanchor_prompt(
         self,

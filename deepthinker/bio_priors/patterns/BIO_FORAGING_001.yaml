@@ -1,0 +1,49 @@
+# Bio Pattern: Optimal Foraging
+# Balances exploration vs exploitation based on resource availability
+
+id: BIO_FORAGING_001
+name: Optimal Foraging Pattern
+problem_class:
+  - exploration_exploitation
+  - stagnation_recovery
+  - resource_discovery
+  - search_strategy
+
+conditions:
+  - Evidence production has stagnated
+  - Low information yield from recent steps
+  - Early phase of investigation
+  - Unexplored areas remain
+
+mechanism: |
+  Optimal foraging theory suggests organisms balance the cost of searching
+  for new resource patches against exploiting known ones. When current
+  patches are depleted (stagnation), the strategy shifts to exploration.
+  In reasoning, this means diversifying search when evidence production stalls.
+
+system_mapping:
+  exploration_bias_delta: 0.15
+  retrieval_diversify: true
+  depth_budget_delta: 1
+
+expected_tradeoffs:
+  benefits:
+    - Breaks out of local minima
+    - Discovers new evidence sources
+    - Prevents premature convergence
+  risks:
+    - May abandon productive lines of inquiry
+    - Increases resource consumption
+
+tests:
+  - When evidence_new_count_recent == 0, pattern should score high
+  - exploration_bias_delta should be positive
+  - retrieval_diversify should be true
+
+citations:
+  - "Stephens, D. W. Foraging Theory"
+  - "Charnov, E. L. Optimal Foraging, the Marginal Value Theorem"
+
+maturity: draft
+weight: 0.45
+

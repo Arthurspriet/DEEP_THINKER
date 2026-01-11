@@ -421,6 +421,8 @@ class ResearchContext:
     subgoals: List[str] = field(default_factory=list)
     # Knowledge context from RAG retrieval
     knowledge_context: Optional[str] = None
+    # Current phase name for context injection (prevents phase confusion)
+    current_phase: Optional[str] = None
 
 
 @dataclass
@@ -812,11 +814,16 @@ Your research output should include:
         if research_context.planner_requirements:
             planner_str = f"\n\nPlanner Requirements:\n{research_context.planner_requirements}"
         
+        # Build phase context to prevent phase confusion (Issue #17)
+        phase_context_str = ""
+        if research_context.current_phase:
+            phase_context_str = f"\n\n**CURRENT PHASE: {research_context.current_phase}**\nYou are working on the {research_context.current_phase} phase. Do NOT reference or mention previous phases like 'Reconnaissance'. Focus on this phase's specific goals.\n"
+        
         if is_incremental:
             # INCREMENTAL RESEARCH MODE
             prompt = f"""## MODE: INCREMENTAL RESEARCH
 You are deepening existing research, NOT starting fresh.
-
+{phase_context_str}
 ## OBJECTIVE
 {research_context.objective}
 {prior_str}
@@ -877,7 +884,7 @@ Be focused and incremental. Only add value beyond existing knowledge."""
             # FULL RESEARCH MODE
             prompt = f"""## MODE: COMPREHENSIVE RESEARCH
 Conduct thorough research on the following objective:
-
+{phase_context_str}
 ## OBJECTIVE
 {research_context.objective}
 {focus_str}
@@ -1059,48 +1066,60 @@ Be thorough but focused. Prioritize quality and accuracy over quantity."""
                 logger.warning("KnowledgeGate unavailable - using fallback logic")
             gate_result = None
         
-        # Perform web searches if KnowledgeGate requires it (MANDATORY)
+        # Perform web searches if KnowledgeGate requires it (MANDATORY) or proactively
         web_context = ""
         external_knowledge = None
-        if gate_result and gate_result.requires_external_validation:
-            if allow_internet and self.enable_websearch and self._websearch_tool:
-                # Note: search_budget_manager would be passed from MissionOrchestrator if available
-                # For now, we proceed without budget checking at this level
+        search_triggered = False
+        
+        # PROACTIVE WEB SEARCH: Always attempt search when internet is allowed
+        # This ensures factual research doesn't rely solely on model knowledge
+        if allow_internet and self.enable_websearch and self._websearch_tool:
+            if gate_result and gate_result.requires_external_validation:
+                # KnowledgeGate mandates search - use missing_facts as queries
                 web_context = self._perform_auto_searches(research_context, gate_result.missing_facts)
-                
-                # Create ExternalKnowledge artifact
-                if EXTERNAL_KNOWLEDGE_AVAILABLE and ExternalKnowledge:
-                    external_knowledge = ExternalKnowledge(
-                        queries=self._last_queries.copy(),
-                        sources=self._extract_sources_from_results()
-                    )
-                    # Phase 6.3: Pass structured sources with quality scores
-                    structured_sources = self._get_structured_sources_from_search()
-                    external_knowledge.calculate_evidence_strength(
-                        result_count=self._last_search_count,
-                        has_urls=bool(external_knowledge.sources),
-                        sources=structured_sources
-                    )
-                    
-                    if not web_context:
-                        external_knowledge.search_failed = True
-                        external_knowledge.evidence_strength = "weak"
-                        external_knowledge.confidence_delta = -0.2
-                        logger.warning("MANDATORY search required but failed - applying confidence penalty")
+                search_triggered = True
             else:
-                # Search required but not available
-                logger.warning(
-                    f"MANDATORY search required but unavailable "
-                    f"(allow_internet={allow_internet}, enable_websearch={self.enable_websearch})"
+                # Proactive search even without gate trigger - generate queries from objective
+                logger.info("Proactive web search: gate didn't require, but allow_internet=True")
+                proactive_queries = self._generate_proactive_queries(research_context)
+                if proactive_queries:
+                    web_context = self._perform_auto_searches(research_context, proactive_queries)
+                    search_triggered = True
+        
+        if gate_result and gate_result.requires_external_validation and search_triggered:
+            # Create ExternalKnowledge artifact
+            if EXTERNAL_KNOWLEDGE_AVAILABLE and ExternalKnowledge:
+                external_knowledge = ExternalKnowledge(
+                    queries=self._last_queries.copy(),
+                    sources=self._extract_sources_from_results()
                 )
-                if EXTERNAL_KNOWLEDGE_AVAILABLE and ExternalKnowledge:
-                    external_knowledge = ExternalKnowledge(
-                        queries=[],
-                        sources=[],
-                        search_failed=True,
-                        evidence_strength="weak",
-                        confidence_delta=-0.2
-                    )
+                # Phase 6.3: Pass structured sources with quality scores
+                structured_sources = self._get_structured_sources_from_search()
+                external_knowledge.calculate_evidence_strength(
+                    result_count=self._last_search_count,
+                    has_urls=bool(external_knowledge.sources),
+                    sources=structured_sources
+                )
+                
+                if not web_context:
+                    external_knowledge.search_failed = True
+                    external_knowledge.evidence_strength = "weak"
+                    external_knowledge.confidence_delta = -0.2
+                    logger.warning("MANDATORY search required but failed - applying confidence penalty")
+        elif gate_result and gate_result.requires_external_validation:
+            # Search required but not available
+            logger.warning(
+                f"MANDATORY search required but unavailable "
+                f"(allow_internet={allow_internet}, enable_websearch={self.enable_websearch})"
+            )
+            if EXTERNAL_KNOWLEDGE_AVAILABLE and ExternalKnowledge:
+                external_knowledge = ExternalKnowledge(
+                    queries=[],
+                    sources=[],
+                    search_failed=True,
+                    evidence_strength="weak",
+                    confidence_delta=-0.2
+                )
         
         # If search was required but failed, apply confidence penalty
         if gate_result and gate_result.requires_external_validation and not web_context:
@@ -1140,6 +1159,66 @@ Be thorough but focused. Prioritize quality and accuracy over quantity."""
                 )
         
         return result
+    
+    def _generate_proactive_queries(self, context: ResearchContext) -> List[str]:
+        """
+        Generate proactive search queries from the research objective.
+        
+        Used when KnowledgeGate doesn't trigger but we want to proactively
+        search for factual information to reduce hallucination risk.
+        
+        Args:
+            context: Research context with objective and focus areas
+            
+        Returns:
+            List of search queries derived from the objective
+        """
+        queries = []
+        
+        # Extract key topics from objective
+        objective = context.objective
+        if not objective:
+            return queries
+        
+        # Use focus areas if available
+        if context.focus_areas:
+            for area in context.focus_areas[:2]:
+                queries.append(f"{area} latest information 2024 2025")
+        
+        # Generate queries from objective keywords
+        # Look for named entities and key concepts
+        key_phrases = []
+        
+        # Common patterns for factual queries
+        import re
+        
+        # Extract quoted terms
+        quoted = re.findall(r'"([^"]+)"', objective)
+        key_phrases.extend(quoted)
+        
+        # Extract capitalized multi-word terms (likely proper nouns)
+        capitalized = re.findall(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b', objective)
+        key_phrases.extend(capitalized[:3])
+        
+        # Extract terms around key words like "analyze", "research", "investigate"
+        for keyword in ["analyze", "research", "investigate", "study", "examine"]:
+            pattern = rf'{keyword}\s+(?:the\s+)?(.{{10,50}}?)(?:\.|,|;|$)'
+            matches = re.findall(pattern, objective.lower())
+            key_phrases.extend(matches)
+        
+        # Build queries from key phrases
+        for phrase in key_phrases[:3]:
+            if len(phrase) > 5:
+                queries.append(f"{phrase.strip()} current status 2025")
+        
+        # Fallback: use first part of objective as query
+        if not queries:
+            # Take first 100 chars of objective as base query
+            base = objective[:100].rsplit(' ', 1)[0]
+            queries.append(f"{base} overview")
+        
+        logger.info(f"Generated {len(queries)} proactive search queries from objective")
+        return queries[:3]  # Limit to 3 proactive queries
     
     def _perform_auto_searches(
         self, 

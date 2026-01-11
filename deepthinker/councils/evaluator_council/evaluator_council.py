@@ -42,6 +42,8 @@ class EvaluatorContext:
     prior_analysis: Optional[str] = None
     # Knowledge context from RAG retrieval
     knowledge_context: Optional[str] = None
+    # Task type: "code", "research", "document", "analysis" - affects evaluation criteria
+    task_type: str = "auto"  # "auto" attempts to detect from content
 
 
 @dataclass
@@ -331,12 +333,53 @@ Consider this prior analysis context in your evaluation.
 {evaluator_context.knowledge_context}
 """
         
-        prompt = f"""Evaluate the following code against the stated objective:
+        # Detect or use specified task type
+        task_type = self._detect_task_type(evaluator_context)
+        
+        # Build task-appropriate evaluation criteria
+        if task_type == "research":
+            criteria_str = """## EVALUATION CRITERIA
+1. **Accuracy**: Are the findings factually correct and well-sourced?
+2. **Completeness**: Does the research cover all aspects of the objective?
+3. **Source Quality**: Are sources reliable, current, and properly cited?
+4. **Analysis Depth**: Is the analysis thorough and insightful?
+5. **Clarity**: Is the research clearly organized and communicated?
+6. **Objectivity**: Does the research present balanced perspectives?"""
+            content_label = "RESEARCH OUTPUT"
+        elif task_type == "document":
+            criteria_str = """## EVALUATION CRITERIA
+1. **Relevance**: Does the document address the objective fully?
+2. **Clarity**: Is the content clear and well-organized?
+3. **Accuracy**: Are claims accurate and supported?
+4. **Completeness**: Does it cover all necessary topics?
+5. **Quality**: Is the writing professional and coherent?
+6. **Usefulness**: Is the document actionable and useful?"""
+            content_label = "DOCUMENT"
+        elif task_type == "analysis":
+            criteria_str = """## EVALUATION CRITERIA
+1. **Rigor**: Is the analysis methodologically sound?
+2. **Depth**: Does it go beyond surface-level observations?
+3. **Evidence**: Are conclusions supported by evidence?
+4. **Insight**: Does it provide valuable new understanding?
+5. **Clarity**: Is the analysis clearly presented?
+6. **Actionability**: Are recommendations practical?"""
+            content_label = "ANALYSIS"
+        else:  # code
+            criteria_str = """## EVALUATION CRITERIA
+1. **Correctness**: Does the code correctly implement the objective?
+2. **Code Quality**: Is the code clean, readable, and well-structured?
+3. **Error Handling**: Does the code handle errors and edge cases?
+4. **Documentation**: Are there adequate docstrings and comments?
+5. **Efficiency**: Is the code reasonably efficient?
+6. **Best Practices**: Does the code follow best practices?"""
+            content_label = "CODE"
+        
+        prompt = f"""Evaluate the following {content_label.lower()} against the stated objective:
 
 ## OBJECTIVE
 {evaluator_context.objective}
 
-## CONTENT TO EVALUATE
+## {content_label} TO EVALUATE
 ```
 {evaluator_context.content_to_evaluate}
 ```
@@ -344,13 +387,7 @@ Consider this prior analysis context in your evaluation.
 {prev_eval_str}
 {prior_analysis_str}
 {knowledge_str}
-## EVALUATION CRITERIA
-1. **Correctness**: Does the code correctly implement the objective?
-2. **Code Quality**: Is the code clean, readable, and well-structured?
-3. **Error Handling**: Does the code handle errors and edge cases?
-4. **Documentation**: Are there adequate docstrings and comments?
-5. **Efficiency**: Is the code reasonably efficient?
-6. **Best Practices**: Does the code follow best practices?
+{criteria_str}
 
 ## OUTPUT FORMAT
 Provide your evaluation in this exact format:
@@ -394,6 +431,64 @@ List any data, evidence, or external sources that would improve the evaluation:
 Brief overall assessment."""
 
         return prompt
+    
+    def _detect_task_type(self, context: EvaluatorContext) -> str:
+        """
+        Detect the task type from context.
+        
+        Uses explicit task_type if set to non-auto, otherwise infers from content.
+        
+        Args:
+            context: The evaluator context
+            
+        Returns:
+            Task type string: "code", "research", "document", or "analysis"
+        """
+        # Use explicit type if provided
+        if context.task_type != "auto":
+            return context.task_type
+        
+        content = context.content_to_evaluate.lower()
+        objective = context.objective.lower()
+        
+        # Research indicators
+        research_indicators = [
+            "research", "findings", "sources", "evidence", "literature",
+            "study", "survey", "investigation", "analysis of"
+        ]
+        if any(ind in objective for ind in research_indicators):
+            return "research"
+        
+        # Code indicators - look for programming patterns
+        code_indicators = [
+            "def ", "class ", "import ", "function ", "return ",
+            "if __name__", "async def", "=> {", "public class",
+            ".py", ".js", ".ts", ".java", ".go", ".rs"
+        ]
+        if any(ind in content for ind in code_indicators):
+            return "code"
+        
+        # Analysis indicators
+        analysis_indicators = [
+            "analyze", "evaluate", "compare", "assess", "examine",
+            "trade-off", "pros and cons", "recommendation"
+        ]
+        if any(ind in objective for ind in analysis_indicators):
+            return "analysis"
+        
+        # Document indicators
+        doc_indicators = [
+            "## ", "### ", "**", "1. ", "- ", "summary", "overview",
+            "introduction", "conclusion"
+        ]
+        if sum(1 for ind in doc_indicators if ind in content) >= 3:
+            return "document"
+        
+        # Default to document for non-code content
+        if not any(ind in content for ind in code_indicators):
+            return "document"
+        
+        return "code"
     
     def postprocess(self, consensus_output: Any) -> EvaluationResult:
         """

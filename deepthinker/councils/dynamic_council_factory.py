@@ -316,7 +316,7 @@ class DynamicCouncilFactory:
         phase: str,
         constraints: Dict[str, Any],
     ) -> List[Tuple[str, float]]:
-        """Select models for the council."""
+        """Select models for the council, filtering out embedding models."""
         if self._capabilities_registry is None:
             return []
         
@@ -342,8 +342,58 @@ class DynamicCouncilFactory:
                 constraints=None,  # No constraints
             )
         
+        # Filter out embedding models for non-embedding councils
+        # Embedding models cannot do text generation
+        if council_type != "embedding":
+            models = self._filter_out_embedding_models(models)
+        
         # Limit to requested count
         return models[:model_count]
+    
+    def _filter_out_embedding_models(
+        self,
+        models: List[Tuple[str, float]],
+    ) -> List[Tuple[str, float]]:
+        """
+        Filter out embedding-only models that cannot do text generation.
+        
+        Embedding models like qwen3-embedding, snowflake-arctic-embed, etc.
+        should not be used for text generation councils.
+        
+        Args:
+            models: List of (model_name, temperature) tuples
+            
+        Returns:
+            Filtered list without embedding models
+        """
+        embedding_patterns = [
+            "embedding",
+            "embed",
+            "arctic-embed",
+            "nomic-embed",
+            "mxbai-embed",
+            "bge-",
+            "e5-",
+        ]
+        
+        filtered = []
+        for model_name, temp in models:
+            model_lower = model_name.lower()
+            is_embedding = any(pattern in model_lower for pattern in embedding_patterns)
+            
+            if is_embedding:
+                self._logger.debug(
+                    f"Filtering out embedding model {model_name} from text generation council"
+                )
+            else:
+                filtered.append((model_name, temp))
+        
+        if len(filtered) < len(models):
+            self._logger.info(
+                f"Filtered {len(models) - len(filtered)} embedding models from selection"
+            )
+        
+        return filtered
     
     def _assign_personas(
         self,

@@ -1,0 +1,50 @@
+# Bio Pattern: Biological Redundancy
+# Multiple verification pathways for critical functions
+
+id: BIO_REDUNDANCY_001
+name: Biological Redundancy Pattern
+problem_class:
+  - verification
+  - error_detection
+  - critical_validation
+  - robustness
+
+conditions:
+  - High-stakes conclusions being formed
+  - Late phase of reasoning
+  - Need for validation before commitment
+  - Previous contradictions detected
+
+mechanism: |
+  Biological systems employ redundancy for critical functions - multiple
+  genes for essential proteins, duplicate organs, parallel neural pathways.
+  In reasoning, this maps to running parallel verification when conclusions
+  have high stakes or when previous errors have been detected.
+
+system_mapping:
+  redundancy_check: true
+  force_falsification_step: true
+  council_diversity_min: 2
+  confidence_penalty_delta: 0.05
+
+expected_tradeoffs:
+  benefits:
+    - Catches errors before commitment
+    - Increases confidence in conclusions
+    - Robust against single-point failures
+  risks:
+    - Increases computational cost
+    - May delay convergence
+
+tests:
+  - In late phase, pattern should be selected
+  - Both redundancy_check and force_falsification_step should be true
+  - Should apply confidence penalty for caution
+
+citations:
+  - "Kitano, H. Biological Robustness"
+  - "Hartwell, L. H. From Molecular to Modular Cell Biology"
+
+maturity: draft
+weight: 0.4
+

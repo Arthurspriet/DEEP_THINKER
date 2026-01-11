@@ -97,13 +97,15 @@ class GPUMonitor:
             return self._available
         
         try:
+            # Use --query-gpu=name which is a valid query
             result = subprocess.run(
-                ['nvidia-smi', '--query-gpu=count', '--format=csv,noheader'],
+                ['nvidia-smi', '--query-gpu=name', '--format=csv,noheader'],
                 capture_output=True,
                 text=True,
                 timeout=5
             )
-            self._available = result.returncode == 0 and result.stdout.strip().isdigit()
+            # Available if command succeeded and returned at least one GPU name
+            self._available = result.returncode == 0 and bool(result.stdout.strip())
         except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
             self._available = False
         
@@ -120,14 +122,25 @@ class GPUMonitor:
             return 0
         
         try:
+            # Use --query-gpu=name to list all GPUs and count them
             result = subprocess.run(
-                ['nvidia-smi', '--query-gpu=count', '--format=csv,noheader'],
+                ['nvidia-smi', '--query-gpu=name', '--format=csv,noheader'],
                 capture_output=True,
                 text=True,
                 timeout=5
             )
             if result.returncode == 0:
-                return int(result.stdout.strip())
+                # Count non-empty lines (one per GPU)
+                lines = [l for l in result.stdout.strip().split('\n') if l.strip()]
+                return len(lines)
+        except Exception:
+            pass
+        
+        # Fallback: Try to get stats and count GPUs from that
+        try:
+            stats = self.get_stats(force_refresh=True)
+            if stats:
+                return len(stats)
         except Exception:
             pass
         

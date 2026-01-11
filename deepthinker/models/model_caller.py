@@ -276,39 +276,36 @@ async def call_model_async(
     )
 
 
-def call_embeddings(
+# Fallback chain for embedding models - try alternatives if primary fails
+EMBEDDING_FALLBACK_CHAIN = [
+    "qwen3-embedding:4b",
+    "snowflake-arctic-embed:latest", 
+    "nomic-embed-text:latest",
+    "mxbai-embed-large:latest",
+]
+
+
+def _try_single_embedding_model(
     text: str,
-    model: str = "qwen3-embedding:4b",
-    timeout: float = 60.0,
-    max_retries: int = 3,
-    base_url: str = DEFAULT_OLLAMA_URL,
-) -> List[float]:
+    model: str,
+    timeout: float,
+    max_retries: int,
+    base_url: str,
+) -> Optional[List[float]]:
     """
-    Get embeddings for text from an Ollama embedding model.
+    Try to get embeddings from a single model with retries.
     
-    Uses httpx.Client with a context manager to ensure proper cleanup.
-    Creates a new client for each call (no reuse across invocations).
-    
-    Args:
-        text: Text to embed
-        model: Ollama embedding model name
-        timeout: Request timeout in seconds
-        max_retries: Maximum number of retry attempts
-        base_url: Ollama server base URL
-        
     Returns:
-        List of floats representing the embedding vector, or empty list on failure
+        Embedding vector if successful, None if all retries failed
     """
     payload = {
         "model": model,
         "prompt": text,
     }
     
-    last_error: Optional[Exception] = None
-    
     for attempt in range(max_retries):
         try:
-            logger.debug(f"[ModelCaller] Opening HTTP client for embeddings (attempt {attempt + 1}/{max_retries})")
+            logger.debug(f"[ModelCaller] Opening HTTP client for embeddings from {model} (attempt {attempt + 1}/{max_retries})")
             
             with httpx.Client(timeout=timeout) as client:
                 response = client.post(
@@ -321,61 +318,100 @@ def call_embeddings(
                 logger.debug(f"[ModelCaller] Closing HTTP client for embeddings (success)")
                 
                 embedding = result.get("embedding", [])
-                return embedding
-                
+                if embedding:
+                    return embedding
+                    
         except httpx.TimeoutException as e:
-            last_error = e
             logger.warning(f"[ModelCaller] Timeout getting embeddings from {model} (attempt {attempt + 1}): {e}")
             
         except httpx.HTTPStatusError as e:
-            last_error = e
             logger.warning(f"[ModelCaller] HTTP error getting embeddings from {model} (attempt {attempt + 1}): {e}")
+            # Don't retry on 500 errors - likely model issue, try fallback instead
+            if e.response.status_code == 500:
+                logger.warning(f"[ModelCaller] Server error 500 from {model} - skipping to fallback model")
+                return None
             
         except httpx.RequestError as e:
-            last_error = e
             logger.warning(f"[ModelCaller] Request error getting embeddings from {model} (attempt {attempt + 1}): {e}")
             
         except Exception as e:
-            last_error = e
             logger.warning(f"[ModelCaller] Unexpected error getting embeddings from {model} (attempt {attempt + 1}): {e}")
         
-        finally:
-            logger.debug(f"[ModelCaller] Closing HTTP client for embeddings (attempt {attempt + 1})")
-        
-        # Exponential backoff: 1s, 2s, 4s
+        # Exponential backoff: 1s, 2s
         if attempt < max_retries - 1:
             backoff = 2 ** attempt
-            logger.debug(f"[ModelCaller] Retrying embeddings in {backoff}s...")
+            logger.debug(f"[ModelCaller] Retrying embeddings from {model} in {backoff}s...")
             time.sleep(backoff)
     
-    # All retries failed - return empty list (graceful degradation for embeddings)
-    logger.error(f"[ModelCaller] Failed to get embeddings from {model} after {max_retries} attempts")
-    cleanup_resources()
-    return []
+    return None
 
 
-async def call_embeddings_async(
+def call_embeddings(
     text: str,
     model: str = "qwen3-embedding:4b",
     timeout: float = 60.0,
-    max_retries: int = 3,
+    max_retries: int = 2,
     base_url: str = DEFAULT_OLLAMA_URL,
 ) -> List[float]:
     """
-    Get embeddings for text from an Ollama embedding model (async version).
+    Get embeddings for text from an Ollama embedding model with fallback chain.
     
-    Uses httpx.AsyncClient with a context manager to ensure proper cleanup.
-    Creates a new client for each call (no reuse across invocations).
+    Uses httpx.Client with a context manager to ensure proper cleanup.
+    If the requested model fails, tries alternative models from fallback chain.
     
     Args:
         text: Text to embed
-        model: Ollama embedding model name
+        model: Ollama embedding model name (primary choice)
         timeout: Request timeout in seconds
-        max_retries: Maximum number of retry attempts
+        max_retries: Maximum number of retry attempts per model
         base_url: Ollama server base URL
         
     Returns:
         List of floats representing the embedding vector, or empty list on failure
+    """
+    # Build model list: requested model first, then fallbacks
+    models_to_try = [model]
+    for fallback in EMBEDDING_FALLBACK_CHAIN:
+        if fallback != model and fallback not in models_to_try:
+            models_to_try.append(fallback)
+    
+    # Try each model in sequence
+    for current_model in models_to_try:
+        logger.debug(f"[ModelCaller] Trying embedding model: {current_model}")
+        
+        result = _try_single_embedding_model(
+            text=text,
+            model=current_model,
+            timeout=timeout,
+            max_retries=max_retries,
+            base_url=base_url,
+        )
+        
+        if result:
+            if current_model != model:
+                logger.info(f"[ModelCaller] Used fallback embedding model: {current_model} (primary {model} failed)")
+            return result
+        
+        logger.warning(f"[ModelCaller] Embedding model {current_model} failed, trying next...")
+    
+    # All models in fallback chain failed
+    logger.error(f"[ModelCaller] All embedding models failed. Tried: {models_to_try}")
+    cleanup_resources()
+    return []
+
+
+async def _try_single_embedding_model_async(
+    text: str,
+    model: str,
+    timeout: float,
+    max_retries: int,
+    base_url: str,
+) -> Optional[List[float]]:
+    """
+    Try to get embeddings from a single model with retries (async version).
+    
+    Returns:
+        Embedding vector if successful, None if all retries failed
     """
     import asyncio
     
@@ -384,11 +420,9 @@ async def call_embeddings_async(
         "prompt": text,
     }
     
-    last_error: Optional[Exception] = None
-    
     for attempt in range(max_retries):
         try:
-            logger.debug(f"[ModelCaller] Opening async HTTP client for embeddings (attempt {attempt + 1}/{max_retries})")
+            logger.debug(f"[ModelCaller] Opening async HTTP client for embeddings from {model} (attempt {attempt + 1}/{max_retries})")
             
             async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.post(
@@ -398,38 +432,84 @@ async def call_embeddings_async(
                 response.raise_for_status()
                 result = response.json()
                 
-                logger.debug(f"[ModelCaller] Closing async HTTP client for embeddings (success)")
-                
                 embedding = result.get("embedding", [])
-                return embedding
-                
+                if embedding:
+                    return embedding
+                    
         except httpx.TimeoutException as e:
-            last_error = e
             logger.warning(f"[ModelCaller] Async timeout getting embeddings from {model} (attempt {attempt + 1}): {e}")
             
         except httpx.HTTPStatusError as e:
-            last_error = e
             logger.warning(f"[ModelCaller] Async HTTP error getting embeddings from {model} (attempt {attempt + 1}): {e}")
+            # Don't retry on 500 errors - try fallback instead
+            if e.response.status_code == 500:
+                logger.warning(f"[ModelCaller] Server error 500 from {model} - skipping to fallback model")
+                return None
             
         except httpx.RequestError as e:
-            last_error = e
             logger.warning(f"[ModelCaller] Async request error getting embeddings from {model} (attempt {attempt + 1}): {e}")
             
         except Exception as e:
-            last_error = e
             logger.warning(f"[ModelCaller] Async unexpected error getting embeddings from {model} (attempt {attempt + 1}): {e}")
         
-        finally:
-            logger.debug(f"[ModelCaller] Closing async HTTP client for embeddings (attempt {attempt + 1})")
-        
-        # Exponential backoff: 1s, 2s, 4s
+        # Exponential backoff
         if attempt < max_retries - 1:
             backoff = 2 ** attempt
-            logger.debug(f"[ModelCaller] Async retrying embeddings in {backoff}s...")
             await asyncio.sleep(backoff)
     
-    # All retries failed - return empty list (graceful degradation for embeddings)
-    logger.error(f"[ModelCaller] Failed to get embeddings from {model} after {max_retries} attempts (async)")
+    return None
+
+
+async def call_embeddings_async(
+    text: str,
+    model: str = "qwen3-embedding:4b",
+    timeout: float = 60.0,
+    max_retries: int = 2,
+    base_url: str = DEFAULT_OLLAMA_URL,
+) -> List[float]:
+    """
+    Get embeddings for text from an Ollama embedding model (async version) with fallback.
+    
+    Uses httpx.AsyncClient with a context manager to ensure proper cleanup.
+    If the requested model fails, tries alternative models from fallback chain.
+    
+    Args:
+        text: Text to embed
+        model: Ollama embedding model name (primary choice)
+        timeout: Request timeout in seconds
+        max_retries: Maximum number of retry attempts per model
+        base_url: Ollama server base URL
+        
+    Returns:
+        List of floats representing the embedding vector, or empty list on failure
+    """
+    # Build model list: requested model first, then fallbacks
+    models_to_try = [model]
+    for fallback in EMBEDDING_FALLBACK_CHAIN:
+        if fallback != model and fallback not in models_to_try:
+            models_to_try.append(fallback)
+    
+    # Try each model in sequence
+    for current_model in models_to_try:
+        logger.debug(f"[ModelCaller] Trying embedding model (async): {current_model}")
+        
+        result = await _try_single_embedding_model_async(
+            text=text,
+            model=current_model,
+            timeout=timeout,
+            max_retries=max_retries,
+            base_url=base_url,
+        )
+        
+        if result:
+            if current_model != model:
+                logger.info(f"[ModelCaller] Used fallback embedding model (async): {current_model} (primary {model} failed)")
+            return result
+        
+        logger.warning(f"[ModelCaller] Embedding model {current_model} failed (async), trying next...")
+    
+    # All models in fallback chain failed
+    logger.error(f"[ModelCaller] All embedding models failed (async). Tried: {models_to_try}")
     cleanup_resources()
     return []
 

@@ -93,6 +93,39 @@ class ResourceBudget:
         """Get remaining output character budget."""
         return max(0, self.max_output_chars - self.output_chars_used)
     
+    def truncate_to_budget(self, text: str) -> str:
+        """
+        Truncate text to fit remaining output budget.
+        
+        Args:
+            text: Text to truncate
+            
+        Returns:
+            Truncated text that fits within remaining budget
+        """
+        remaining = self.remaining_output_chars()
+        if len(text) <= remaining:
+            return text
+        
+        if remaining <= 100:
+            return "[OUTPUT TRUNCATED - Budget exhausted]"
+        
+        # Truncate with indication
+        truncation_notice = "\n\n[OUTPUT TRUNCATED - Budget limit reached]"
+        available = remaining - len(truncation_notice)
+        if available <= 0:
+            return "[OUTPUT TRUNCATED - Budget exhausted]"
+        
+        return text[:available] + truncation_notice
+    
+    def add_chars(self, chars: int) -> None:
+        """Add character count to usage tracking."""
+        self.output_chars_used += chars
+    
+    def add_tokens(self, tokens: int) -> None:
+        """Add token count to usage tracking."""
+        self.tokens_used += tokens
+    
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
         return {
@@ -119,11 +152,20 @@ class ValidationResult:
     unknown_fields: List[str] = field(default_factory=list)
     fields_filled: Dict[str, Any] = field(default_factory=dict)
     fields_stripped: List[str] = field(default_factory=list)
+    stripped_values: Dict[str, Any] = field(default_factory=dict)  # Preserve stripped field values
     warnings: List[str] = field(default_factory=list)
     
     def has_corrections(self) -> bool:
         """Check if any corrections were made."""
         return bool(self.fields_filled or self.fields_stripped)
+    
+    def get_additional_context(self) -> Dict[str, Any]:
+        """
+        Get stripped fields as additional context.
+        
+        These can be passed separately to councils that may need them.
+        """
+        return self.stripped_values.copy()
 
 
 @dataclass
@@ -345,18 +387,30 @@ class CognitiveSpine:
         result.unknown_fields = unknown_fields
         result.is_valid = is_valid
         
-        # Handle unknown fields
+        # Handle unknown fields - preserve their values before stripping
         if unknown_fields:
             result.fields_stripped = unknown_fields
+            # Preserve stripped values for later use (Issue #8 fix)
+            result.stripped_values = self._extract_field_values(context, unknown_fields)
             context = self._strip_unknown_fields(context, schema_class)
             result.context = context
             
-            # Log the correction
+            # Log the correction with warning about preserved context
             self._log_schema_correction(
                 council_name, 
                 unknown_fields, 
-                "stripped unknown fields"
+                "stripped unknown fields (values preserved in stripped_values)"
             )
+            
+            # Log warning about stripped fields that may contain important context
+            important_fields = ["focus_areas", "findings", "recommendations", "data_needs", 
+                              "prior_knowledge", "planner_requirements", "external_knowledge"]
+            stripped_important = [f for f in unknown_fields if f in important_fields]
+            if stripped_important:
+                logger.warning(
+                    f"[SPINE] Important context fields stripped from {council_name}: {stripped_important}. "
+                    f"Access via result.stripped_values if needed."
+                )
         
         # Handle missing optional fields
         if not is_valid:
@@ -374,6 +428,33 @@ class CognitiveSpine:
         self.log_context_validation(council_name, result)
         
         return result
+    
+    def _extract_field_values(self, context: Any, fields: List[str]) -> Dict[str, Any]:
+        """
+        Extract values for specified fields from context.
+        
+        Used to preserve values before stripping them from the context.
+        
+        Args:
+            context: The context object/dict
+            fields: Field names to extract
+            
+        Returns:
+            Dict of field_name -> value for fields that exist
+        """
+        values = {}
+        
+        if isinstance(context, dict):
+            for field_name in fields:
+                if field_name in context:
+                    values[field_name] = context[field_name]
+        else:
+            # For dataclass/object
+            for field_name in fields:
+                if hasattr(context, field_name):
+                    values[field_name] = getattr(context, field_name)
+        
+        return values
     
     def _strip_unknown_fields(self, context: Any, schema_class: type) -> Any:
         """Strip unknown fields from context."""

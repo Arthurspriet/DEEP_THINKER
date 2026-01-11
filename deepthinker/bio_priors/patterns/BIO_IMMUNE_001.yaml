@@ -1,0 +1,49 @@
+# Bio Pattern: Immune Response
+# Triggers when drift or contradictions are detected, suggesting corrective action
+
+id: BIO_IMMUNE_001
+name: Immune Response Pattern
+problem_class:
+  - drift_detection
+  - contradiction_handling
+  - alignment_recovery
+  - goal_deviation
+
+conditions:
+  - High drift score from alignment trajectory
+  - Rising contradiction rate
+  - Evidence of goal deviation
+  - Inconsistent outputs across iterations
+
+mechanism: |
+  The immune system detects foreign antigens and mounts targeted responses.
+  In reasoning, this maps to detecting drift from the mission objective
+  and triggering corrective mechanisms like redundancy checks and
+  falsification attempts to restore alignment.
+
+system_mapping:
+  redundancy_check: true
+  force_falsification_step: true
+  depth_budget_delta: 1
+  confidence_penalty_delta: 0.1
+
+expected_tradeoffs:
+  benefits:
+    - Early detection of reasoning drift
+    - Proactive contradiction resolution
+    - Maintains goal alignment
+  risks:
+    - May slow progress if triggered unnecessarily
+    - Could prune valid exploratory branches
+
+tests:
+  - When drift_score > 0.3, pattern should be selected
+  - When contradiction_rate > 0.2, pattern should be selected
+  - redundancy_check should be true in output signals
+
+citations:
+  - "Janeway, C. A. Immunobiology: The Immune System in Health and Disease"
+
+maturity: stable
+weight: 0.5
+

@@ -33,6 +33,7 @@ class ConstitutionEventType(str, Enum):
     VIOLATION = "violation"
     BASELINE_SNAPSHOT = "baseline_snapshot"
     PHASE_EVALUATION = "phase_evaluation"
+    PRIOR_INFLUENCE = "prior_influence"  # Bio priors - explicitly non-evidence
 
 
 @dataclass
@@ -246,6 +247,79 @@ class ConstitutionViolationEvent(BaseConstitutionEvent):
         # Ensure severity is clamped
         result["severity"] = max(0.0, min(1.0, self.severity))
         return result
+
+
+@dataclass
+class PriorInfluenceEvent(BaseConstitutionEvent):
+    """
+    Event for bio prior influence on reasoning.
+    
+    This event is EXPLICITLY NON-EVIDENCE:
+    - is_evidence is ALWAYS False
+    - affects_confidence is ALWAYS False
+    - Constitution invariants MUST ignore events where is_evidence == False
+    
+    Attributes:
+        is_evidence: ALWAYS False - invariants must ignore this event
+        affects_confidence: ALWAYS False - no confidence impact
+        source: Source of the prior (e.g., "bio_priors")
+        mode: Operating mode (off/advisory/shadow/soft)
+        selected_patterns: List of selected pattern IDs
+        signals_applied: Dictionary of applied signal values
+        applied_fields: List of field names that were actually applied
+        context_snapshot: Snapshot of context used for evaluation
+    """
+    event_type: ConstitutionEventType = ConstitutionEventType.PRIOR_INFLUENCE
+    
+    # Explicit non-evidence markers (future-proof)
+    is_evidence: bool = False           # ALWAYS False - invariants must ignore
+    affects_confidence: bool = False    # ALWAYS False - no confidence impact
+    
+    # Event payload
+    source: str = "bio_priors"
+    mode: str = ""                      # off/advisory/shadow/soft
+    selected_patterns: List[str] = field(default_factory=list)
+    signals_applied: Dict[str, Any] = field(default_factory=dict)
+    applied_fields: List[str] = field(default_factory=list)
+    context_snapshot: Dict[str, Any] = field(default_factory=dict)
+    
+    def __post_init__(self) -> None:
+        """Ensure non-evidence markers are always False."""
+        # Force these to False regardless of input
+        object.__setattr__(self, 'is_evidence', False)
+        object.__setattr__(self, 'affects_confidence', False)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        result = super().to_dict()
+        # Ensure non-evidence markers are always False in output
+        result["is_evidence"] = False
+        result["affects_confidence"] = False
+        return result
+
+
+def is_evidence_event(event: BaseConstitutionEvent) -> bool:
+    """
+    Check if an event should be treated as evidence for invariant checks.
+    
+    Events with is_evidence == False should be ignored by constitution
+    invariants that check evidence-based confidence changes.
+    
+    Args:
+        event: Constitution event to check
+        
+    Returns:
+        True if event should be treated as evidence, False otherwise
+    """
+    # Check explicit is_evidence flag first (future-proof)
+    if hasattr(event, 'is_evidence') and event.is_evidence is False:
+        return False
+    
+    # Also check by event type for backward compatibility
+    if event.event_type == ConstitutionEventType.PRIOR_INFLUENCE:
+        return False
+    
+    # Default: events without is_evidence flag are evidence
+    return True
 
 
 @dataclass 

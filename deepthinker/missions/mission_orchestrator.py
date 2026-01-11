@@ -635,6 +635,33 @@ except ImportError as e:
     PolicyAction = None
     _log_import_failure("MetricsIntegration", e)
 
+# Bio Priors - Biological strategy patterns as soft background priors
+try:
+    from ..bio_priors import (
+        BioPriorConfig,
+        BioPriorEngine,
+        BioPriorOutput,
+        BioPriorContext,
+        build_context as build_bio_context,
+        apply_bio_pressures_to_deepening_plan,
+        get_bio_prior_config,
+    )
+    from ..bio_priors.integration import compute_would_apply_diff
+    from ..constitution.types import PriorInfluenceEvent, ConstitutionEventType
+    BIO_PRIORS_AVAILABLE = True
+except ImportError as e:
+    BIO_PRIORS_AVAILABLE = False
+    BioPriorConfig = None
+    BioPriorEngine = None
+    BioPriorOutput = None
+    BioPriorContext = None
+    build_bio_context = None
+    apply_bio_pressures_to_deepening_plan = None
+    get_bio_prior_config = None
+    compute_would_apply_diff = None
+    PriorInfluenceEvent = None
+    _log_import_failure("BioPriors", e)
+
 _orchestrator_logger = logging.getLogger(__name__)
 
 # Minimum time (in minutes) required to attempt a phase
@@ -849,7 +876,7 @@ class MissionOrchestrator:
         
         # Deepening configuration
         self._min_deepening_iteration_seconds = 30.0
-        self._max_deepening_rounds = 3
+        self._max_deepening_rounds = 2  # Reduced from 3 to prevent runaway phase deepening
         self._convergence_threshold_for_deepening = 0.7
         self._target_utilization = 0.8
         
@@ -1087,6 +1114,27 @@ class MissionOrchestrator:
             pass
         except Exception as e:
             _orchestrator_logger.debug(f"ConstitutionEngine init failed: {e}")
+        
+        # =====================================================================
+        # Bio Priors - Biological strategy patterns as soft background priors
+        # =====================================================================
+        self._bio_prior_config: Optional["BioPriorConfig"] = None
+        self._bio_prior_engine: Optional["BioPriorEngine"] = None
+        self._enable_bio_priors = False
+        if BIO_PRIORS_AVAILABLE:
+            try:
+                self._bio_prior_config = get_bio_prior_config()
+                if self._bio_prior_config.is_active:
+                    self._bio_prior_engine = BioPriorEngine(config=self._bio_prior_config)
+                    self._enable_bio_priors = True
+                    _orchestrator_logger.info(
+                        f"BioPriorEngine initialized (mode={self._bio_prior_config.mode}, "
+                        f"topk={self._bio_prior_config.topk})"
+                    )
+                else:
+                    _orchestrator_logger.debug("BioPriors disabled by config")
+            except Exception as e:
+                _orchestrator_logger.debug(f"BioPriorEngine init failed: {e}")
         
         # Log summary of unavailable components (once per session)
         log_component_summary()
@@ -2906,6 +2954,18 @@ Start your response with the phases:"""
                             deepening_plan = self.reasoning_supervisor.plan_deepening(state, metrics)
                             if deepening_plan and deepening_plan.has_work:
                                 state.log(f"Deepening: {deepening_plan.reason}")
+                                
+                                # =========================================================
+                                # Bio Prior Integration (anchor: after plan_deepening)
+                                # =========================================================
+                                if self._enable_bio_priors and self._bio_prior_engine:
+                                    try:
+                                        bio_output = self._evaluate_bio_priors(state, metrics, deepening_plan)
+                                        if bio_output is not None:
+                                            self._log_bio_prior_output(state, bio_output, deepening_plan)
+                                    except Exception as bio_err:
+                                        _orchestrator_logger.debug(f"BioPrior evaluation error: {bio_err}")
+                                
                                 self._execute_deepening(state, deepening_plan)
                                 
                                 # Log deepening
@@ -3220,6 +3280,158 @@ Start your response with the phases:"""
         
         return True
     
+    # =========================================================================
+    # Bio Prior Integration Methods
+    # =========================================================================
+    
+    def _evaluate_bio_priors(
+        self,
+        state: MissionState,
+        metrics: Any,
+        deepening_plan: Any,
+    ) -> Optional["BioPriorOutput"]:
+        """
+        Evaluate bio priors against current context.
+        
+        Pure evaluation - no side effects on state or plan.
+        
+        Args:
+            state: Current mission state
+            metrics: Mission metrics from supervisor
+            deepening_plan: Current deepening plan
+            
+        Returns:
+            BioPriorOutput if evaluation succeeds, None otherwise
+        """
+        if not self._enable_bio_priors or not self._bio_prior_engine:
+            return None
+        
+        if not BIO_PRIORS_AVAILABLE or build_bio_context is None:
+            return None
+        
+        try:
+            # Build context from state
+            bio_ctx = build_bio_context(state, metrics)
+            
+            # Evaluate (pure, deterministic)
+            bio_output = self._bio_prior_engine.evaluate(bio_ctx)
+            
+            return bio_output
+            
+        except Exception as e:
+            _orchestrator_logger.debug(f"BioPrior context build error: {e}")
+            return None
+    
+    def _log_bio_prior_output(
+        self,
+        state: MissionState,
+        bio_output: "BioPriorOutput",
+        deepening_plan: Any,
+    ) -> None:
+        """
+        Log bio prior output and optionally apply signals.
+        
+        Mode behavior:
+        - advisory: Log only, no application
+        - shadow: Log + compute "would_apply" diff, no application
+        - soft: Log + apply bounded modifications (v1: depth_budget_delta only)
+        
+        Args:
+            state: Current mission state
+            bio_output: Output from bio prior evaluation
+            deepening_plan: Deepening plan to potentially modify
+        """
+        if bio_output is None:
+            return
+        
+        # Log the bio prior evaluation event
+        state.log_event("bio_prior_evaluation", {
+            "mode": bio_output.mode,
+            "selected_patterns": bio_output.selected_patterns,
+            "signals": bio_output.signals.to_dict(),
+            "advisory_text": bio_output.advisory_text,
+            "applied": bio_output.applied,
+            "applied_fields": bio_output.applied_fields,
+            "trace": bio_output.trace,
+        })
+        
+        # Shadow mode: compute and log "would_apply" diff
+        if bio_output.mode == "shadow":
+            if compute_would_apply_diff is not None and deepening_plan:
+                try:
+                    would_apply = compute_would_apply_diff(deepening_plan, bio_output.signals)
+                    state.log_event("bio_prior_shadow_diff", would_apply)
+                except Exception as e:
+                    _orchestrator_logger.debug(f"BioPrior shadow diff error: {e}")
+        
+        # Soft mode: apply bounded modifications
+        elif bio_output.mode == "soft":
+            if apply_bio_pressures_to_deepening_plan is not None and deepening_plan:
+                try:
+                    applied_fields = apply_bio_pressures_to_deepening_plan(
+                        deepening_plan,
+                        bio_output.signals,
+                    )
+                    
+                    # Log constitution event (tagged non-evidence)
+                    self._log_prior_influence_event(state, bio_output, applied_fields)
+                    
+                    if applied_fields:
+                        state.log(f"[BIO_PRIORS] Applied: {applied_fields}")
+                        
+                except Exception as e:
+                    _orchestrator_logger.debug(f"BioPrior soft apply error: {e}")
+        
+        # Log advisory text in debug
+        if bio_output.selected_patterns:
+            _orchestrator_logger.debug(
+                f"BioPrior patterns: {[p['id'] for p in bio_output.selected_patterns]}"
+            )
+    
+    def _log_prior_influence_event(
+        self,
+        state: MissionState,
+        bio_output: "BioPriorOutput",
+        applied_fields: List[str],
+    ) -> None:
+        """
+        Log a PRIOR_INFLUENCE constitution event.
+        
+        This event is explicitly tagged as NON-EVIDENCE so that
+        constitution invariants ignore it for confidence checks.
+        
+        Args:
+            state: Current mission state
+            bio_output: Bio prior output
+            applied_fields: Fields that were actually applied
+        """
+        if not BIO_PRIORS_AVAILABLE or PriorInfluenceEvent is None:
+            return
+        
+        try:
+            # Create the prior influence event
+            event = PriorInfluenceEvent(
+                mission_id=state.mission_id,
+                phase_id=state.current_phase().id if state.current_phase() else "",
+                source="bio_priors",
+                mode=bio_output.mode,
+                selected_patterns=[p["id"] for p in bio_output.selected_patterns],
+                signals_applied=bio_output.signals.to_dict(),
+                applied_fields=applied_fields,
+                context_snapshot=bio_output.trace.get("context_snapshot", {}),
+            )
+            
+            # Log to constitution ledger if available
+            if self._constitution_engine is not None:
+                if hasattr(self._constitution_engine, 'log_event'):
+                    self._constitution_engine.log_event(event)
+            
+            # Also log via state's event system
+            state.log_event("constitution_prior_influence", event.to_dict())
+            
+        except Exception as e:
+            _orchestrator_logger.debug(f"PriorInfluenceEvent logging error: {e}")
+    
     def _extract_and_update_subgoals(self, state: MissionState) -> None:
         """
         Extract subgoals from planner output for next iteration.
@@ -3268,6 +3480,84 @@ Start your response with the phases:"""
         
         if subgoals:
             state.log(f"Identified {len(subgoals)} subgoals for next iteration")
+    
+    def _extract_planner_context(
+        self,
+        state: MissionState
+    ) -> Tuple[List[str], Optional[str]]:
+        """
+        Extract focus areas and requirements from planner phase artifacts.
+        
+        This ensures research context receives proper guidance from planning phases.
+        Fixes Issue #7: Empty research context due to missing planner mapping.
+        
+        Args:
+            state: Current mission state
+            
+        Returns:
+            Tuple of (focus_areas list, planner_requirements string or None)
+        """
+        focus_areas = []
+        planner_requirements = None
+        
+        # Extract from completed design/planning phases
+        for phase in state.phases:
+            if phase.status != "completed":
+                continue
+            
+            phase_type = self._classify_phase(phase)
+            if phase_type not in ["design", "planning"]:
+                continue
+            
+            artifacts = phase.artifacts
+            
+            # Extract focus areas
+            if "focus_areas" in artifacts:
+                try:
+                    import json
+                    areas = json.loads(artifacts["focus_areas"]) if isinstance(artifacts["focus_areas"], str) else artifacts["focus_areas"]
+                    if isinstance(areas, list):
+                        focus_areas.extend(areas)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            
+            # Also check for priorities or key_areas
+            for key in ["priorities", "key_areas", "research_areas"]:
+                if key in artifacts:
+                    try:
+                        import json
+                        items = json.loads(artifacts[key]) if isinstance(artifacts[key], str) else artifacts[key]
+                        if isinstance(items, list):
+                            focus_areas.extend(items)
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+            
+            # Extract requirements text
+            for key in ["requirements", "planner_output", "plan_summary"]:
+                if key in artifacts and isinstance(artifacts[key], str):
+                    if len(artifacts[key]) > 50:  # Non-trivial content
+                        planner_requirements = artifacts[key][:2000]  # Truncate
+                        break
+        
+        # Fallback: extract from current subgoals if no focus areas found
+        if not focus_areas and self._current_subgoals:
+            focus_areas = self._current_subgoals.copy()
+        
+        # Fallback: extract from iteration context manager
+        if not focus_areas and self._iteration_context_manager:
+            ctx_updates = self._iteration_context_manager.get_research_context_updates()
+            if ctx_updates.get("focus_areas"):
+                focus_areas = ctx_updates["focus_areas"]
+        
+        # Deduplicate and limit
+        seen = set()
+        unique_areas = []
+        for area in focus_areas:
+            if area and area not in seen:
+                seen.add(area)
+                unique_areas.append(area)
+        
+        return unique_areas[:5], planner_requirements
     
     def _compute_multiview_disagreement(
         self,
@@ -6785,16 +7075,22 @@ Focus on actionable insights and testable predictions."""
         if hasattr(state, 'knowledge_context') and state.knowledge_context:
             knowledge_ctx = state.knowledge_context.get("formatted", "")
         
+        # Extract planner artifacts from previous phases for context propagation
+        focus_areas, planner_requirements = self._extract_planner_context(state)
+        
         research_context = ResearchContext(
             objective=f"{state.objective}\n\nPhase: {phase.name}\n{phase.description}",
+            focus_areas=focus_areas,  # Pass planner focus areas
             prior_knowledge=context if context else None,
             constraints="No internet access" if not state.constraints.allow_internet else None,
+            planner_requirements=planner_requirements,  # Pass planner requirements
             allow_internet=state.constraints.allow_internet,
             data_needs=data_needs,
             unresolved_questions=unresolved_questions,
             requires_evidence=requires_evidence,
             subgoals=subgoals,
             knowledge_context=knowledge_ctx,
+            current_phase=phase.name,  # Inject phase name to prevent confusion
         )
         
         # Log iteration context
@@ -6829,17 +7125,20 @@ Focus on actionable insights and testable predictions."""
             else:
                 state.log(f"Internet search skipped: {search_rationale}")
         
-        # Override allow_internet if trigger says no
+        # Override allow_internet if trigger says no (preserve other fields from first context)
         research_context = ResearchContext(
             objective=research_context.objective,
+            focus_areas=research_context.focus_areas,  # Preserve planner focus areas
             prior_knowledge=research_context.prior_knowledge,
             constraints=research_context.constraints,
+            planner_requirements=research_context.planner_requirements,  # Preserve planner requirements
             allow_internet=trigger_search,
             data_needs=data_needs,
             unresolved_questions=unresolved_questions,
             requires_evidence=requires_evidence,
             subgoals=subgoals,
             knowledge_context=knowledge_ctx,
+            current_phase=research_context.current_phase,  # Preserve phase context
         )
         
         # Verbose logging: council activation

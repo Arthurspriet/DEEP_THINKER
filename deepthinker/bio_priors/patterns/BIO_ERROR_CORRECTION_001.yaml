@@ -1,0 +1,49 @@
+# Bio Pattern: DNA Error Correction
+# Detecting and correcting errors through proofreading mechanisms
+
+id: BIO_ERROR_CORRECTION_001
+name: DNA Error Correction Pattern
+problem_class:
+  - error_correction
+  - contradiction_resolution
+  - consistency_maintenance
+  - proofreading
+
+conditions:
+  - Contradictions detected in output
+  - Inconsistent claims across phases
+  - Error rate increasing
+  - Quality degradation observed
+
+mechanism: |
+  DNA polymerase has proofreading ability - it can detect and correct
+  mismatched base pairs during replication. Additional mismatch repair
+  systems catch errors post-replication. In reasoning, this maps to
+  active detection and correction of contradictions and inconsistencies.
+
+system_mapping:
+  redundancy_check: true
+  force_falsification_step: true
+  confidence_penalty_delta: 0.1
+
+expected_tradeoffs:
+  benefits:
+    - Actively resolves contradictions
+    - Maintains consistency
+    - Prevents error propagation
+  risks:
+    - May over-correct valid diversity
+    - Computational overhead for checking
+
+tests:
+  - When contradiction_rate is high, pattern should score high
+  - redundancy_check and force_falsification_step both true
+  - Should apply confidence penalty until errors resolved
+
+citations:
+  - "Kunkel, T. A. DNA Replication Fidelity"
+  - "Modrich, P. Mechanisms of DNA Mismatch Repair"
+
+maturity: draft
+weight: 0.4
+

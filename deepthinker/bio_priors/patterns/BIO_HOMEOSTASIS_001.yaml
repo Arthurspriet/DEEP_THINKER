@@ -1,0 +1,48 @@
+# Bio Pattern: Homeostasis
+# Maintains balance and stability in reasoning dynamics
+
+id: BIO_HOMEOSTASIS_001
+name: Homeostatic Balance Pattern
+problem_class:
+  - balance_maintenance
+  - stability_control
+  - drift_correction
+  - oscillation_damping
+
+conditions:
+  - High uncertainty trend (increasing)
+  - Evidence of oscillating conclusions
+  - Drift from stable baseline
+  - Resource consumption imbalance
+
+mechanism: |
+  Biological homeostasis maintains internal stability through negative
+  feedback loops. In reasoning, this translates to detecting when
+  conclusions are oscillating or drifting, and applying stabilizing
+  pressure to return to a balanced state without overreacting.
+
+system_mapping:
+  exploration_bias_delta: -0.1
+  confidence_penalty_delta: 0.05
+  depth_budget_delta: 0
+
+expected_tradeoffs:
+  benefits:
+    - Prevents runaway exploration
+    - Stabilizes oscillating conclusions
+    - Maintains consistent reasoning
+  risks:
+    - May suppress valid exploratory insights
+    - Could lead to premature convergence
+
+tests:
+  - When uncertainty_trend is high positive, pattern should activate
+  - exploration_bias_delta should be negative (dampening)
+  - Should not significantly increase depth budget
+
+citations:
+  - "Cannon, W. B. The Wisdom of the Body"
+
+maturity: stable
+weight: 0.4
+

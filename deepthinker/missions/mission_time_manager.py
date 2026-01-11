@@ -467,8 +467,9 @@ class MissionTimeManager:
         convergence_score: float,
         deepening_rounds_done: int,
         min_iteration_seconds: float = 30.0,
-        max_deepening_rounds: int = 3,
-        convergence_threshold: float = 0.7
+        max_deepening_rounds: int = 2,  # Reduced from 3 to prevent runaway deepening
+        convergence_threshold: float = 0.7,
+        max_phase_time_pct: float = 0.8  # Force completion after using 80% of phase budget
     ) -> Tuple[bool, str]:
         """
         Determine if a phase should be deepened with more iterations.
@@ -478,6 +479,7 @@ class MissionTimeManager:
         - Max deepening rounds not reached
         - Time budget allows another iteration
         - Overall mission time allows
+        - Phase hasn't used more than max_phase_time_pct of its allocated time
         
         Args:
             phase_name: Name of the phase
@@ -486,6 +488,7 @@ class MissionTimeManager:
             min_iteration_seconds: Minimum time needed for one iteration
             max_deepening_rounds: Maximum deepening rounds allowed
             convergence_threshold: Score above which quality has plateaued
+            max_phase_time_pct: Force phase completion after this percentage of budget
             
         Returns:
             Tuple of (should_deepen, reason)
@@ -507,6 +510,15 @@ class MissionTimeManager:
         if budget is not None:
             record = self.phase_times.get(phase_name)
             time_used = record.wall_time_seconds if record else 0.0
+            
+            # NEW: Hard time-based forced completion
+            # If phase has used more than 80% of its allocated time, force completion
+            time_pct_used = time_used / budget.allocated_seconds if budget.allocated_seconds > 0 else 1.0
+            if time_pct_used >= max_phase_time_pct:
+                return False, (
+                    f"Time budget exhausted ({time_pct_used*100:.0f}% used >= {max_phase_time_pct*100:.0f}% limit) - "
+                    "forcing phase completion"
+                )
             
             if not budget.can_deepen(time_used, min_iteration_seconds):
                 remaining = budget.max_seconds - time_used

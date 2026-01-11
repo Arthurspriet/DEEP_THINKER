@@ -55,11 +55,17 @@ from .model_registry import (
     MODEL_TIERS,
     PHASE_MODEL_PREFERENCES,
     get_model_registry,
+    reset_model_registry,
 )
 from .model_selector import (
     ModelSelector,
     ModelSelection,
     get_model_selector,
+)
+from .model_stats_store import (
+    ModelStats,
+    ModelStatsStore,
+    get_model_stats_store,
 )
 
 # Model capabilities registry for dynamic council generation
@@ -150,9 +156,14 @@ __all__ = [
     "MODEL_TIERS",
     "PHASE_MODEL_PREFERENCES",
     "get_model_registry",
+    "reset_model_registry",
     "ModelSelector",
     "ModelSelection",
     "get_model_selector",
+    # Model stats store exports
+    "ModelStats",
+    "ModelStatsStore",
+    "get_model_stats_store",
     # Model capabilities exports
     "ModelCapability",
     "ModelCapabilitiesRegistry",

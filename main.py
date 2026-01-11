@@ -8,8 +8,15 @@ Command-line interface for the DeepThinker multi-agent autonomous AI system.
 import os
 import sys
 import json
+import warnings
 from pathlib import Path
 from typing import Optional
+
+# Suppress common deprecation warnings that clutter output
+warnings.filterwarnings("ignore", message=".*xla_device.*deprecated.*")
+warnings.filterwarnings("ignore", message=".*torch.distributed.*deprecated.*")
+warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="huggingface_hub")
 
 import click
 

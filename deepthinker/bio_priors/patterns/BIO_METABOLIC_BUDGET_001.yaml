@@ -1,0 +1,48 @@
+# Bio Pattern: Metabolic Budgeting
+# Resource allocation under constraints
+
+id: BIO_METABOLIC_BUDGET_001
+name: Metabolic Budget Pattern
+problem_class:
+  - resource_management
+  - complexity_reduction
+  - budget_constraints
+  - efficiency_optimization
+
+conditions:
+  - High branching factor in plan
+  - Resource constraints approaching
+  - Time budget running low
+  - Diminishing returns detected
+
+mechanism: |
+  Organisms allocate limited metabolic resources strategically, investing
+  more in critical functions and reducing expenditure on low-priority
+  activities. In reasoning, this maps to pruning low-value branches and
+  focusing resources on high-yield approaches when budget is constrained.
+
+system_mapping:
+  branch_pruning_suggested: true
+  depth_budget_delta: -1
+  exploration_bias_delta: -0.1
+
+expected_tradeoffs:
+  benefits:
+    - Efficient resource utilization
+    - Focuses on high-value paths
+    - Enables completion within constraints
+  risks:
+    - May prune valuable exploratory branches
+    - Could miss important edge cases
+
+tests:
+  - When branching factor high, pattern should activate
+  - branch_pruning_suggested should be true
+  - Should reduce depth budget to conserve resources
+
+citations:
+  - "Kooijman, S. A. L. M. Dynamic Energy Budget Theory"
+
+maturity: draft
+weight: 0.35
+
