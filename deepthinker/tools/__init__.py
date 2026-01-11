@@ -10,6 +10,9 @@ from .search_triggers import (
     get_phase_search_quota,
     SEARCH_TRIGGER_KEYWORDS,
     PHASE_SEARCH_QUOTAS,
+    ARXIV_TRIGGER_KEYWORDS,
+    should_use_arxiv,
+    get_arxiv_search_queries,
 )
 
 __all__ = [
@@ -20,5 +23,9 @@ __all__ = [
     "get_phase_search_quota",
     "SEARCH_TRIGGER_KEYWORDS",
     "PHASE_SEARCH_QUOTAS",
+    # arXiv support
+    "ARXIV_TRIGGER_KEYWORDS",
+    "should_use_arxiv",
+    "get_arxiv_search_queries",
 ]
 

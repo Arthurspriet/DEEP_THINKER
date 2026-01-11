@@ -284,6 +284,62 @@ EMBEDDING_FALLBACK_CHAIN = [
     "mxbai-embed-large:latest",
 ]
 
+# Track embedding availability to avoid repeated failures
+_embedding_availability_checked = False
+_embedding_available = False
+_embedding_warning_logged = False
+
+
+def check_embedding_availability(
+    base_url: str = DEFAULT_OLLAMA_URL,
+    timeout: float = 10.0,
+) -> bool:
+    """
+    Check if any embedding model is available in Ollama.
+    
+    This is called once at startup to warn if embeddings won't work.
+    
+    Args:
+        base_url: Ollama server base URL
+        timeout: Request timeout in seconds
+        
+    Returns:
+        True if at least one embedding model is available
+    """
+    global _embedding_availability_checked, _embedding_available
+    
+    if _embedding_availability_checked:
+        return _embedding_available
+    
+    _embedding_availability_checked = True
+    
+    # Try a simple embedding request with each model
+    test_text = "test"
+    
+    for model in EMBEDDING_FALLBACK_CHAIN:
+        try:
+            with httpx.Client(timeout=timeout) as client:
+                response = client.post(
+                    f"{base_url}/api/embeddings",
+                    json={"model": model, "prompt": test_text},
+                )
+                if response.status_code == 200:
+                    result = response.json()
+                    if result.get("embedding"):
+                        logger.info(f"[ModelCaller] Embedding model available: {model}")
+                        _embedding_available = True
+                        return True
+        except Exception as e:
+            logger.debug(f"[ModelCaller] Embedding model {model} not available: {e}")
+            continue
+    
+    logger.warning(
+        f"[ModelCaller] No embedding models available. RAG/memory features will be disabled. "
+        f"Tried: {EMBEDDING_FALLBACK_CHAIN}. Install with: ollama pull {EMBEDDING_FALLBACK_CHAIN[0]}"
+    )
+    _embedding_available = False
+    return False
+
 
 def _try_single_embedding_model(
     text: str,
@@ -392,11 +448,21 @@ def call_embeddings(
                 logger.info(f"[ModelCaller] Used fallback embedding model: {current_model} (primary {model} failed)")
             return result
         
-        logger.warning(f"[ModelCaller] Embedding model {current_model} failed, trying next...")
+        logger.debug(f"[ModelCaller] Embedding model {current_model} failed, trying next...")
     
-    # All models in fallback chain failed
-    logger.error(f"[ModelCaller] All embedding models failed. Tried: {models_to_try}")
+    # All models in fallback chain failed - graceful degradation
+    global _embedding_warning_logged
+    if not _embedding_warning_logged:
+        logger.error(
+            f"[ModelCaller] All embedding models failed. RAG/memory features disabled. "
+            f"Tried: {models_to_try}. Install with: ollama pull {EMBEDDING_FALLBACK_CHAIN[0]}"
+        )
+        _embedding_warning_logged = True
+    else:
+        logger.debug(f"[ModelCaller] Embedding request skipped - no models available")
+    
     cleanup_resources()
+    # Return empty list for graceful degradation - callers should handle this
     return []
 
 
@@ -506,10 +572,20 @@ async def call_embeddings_async(
                 logger.info(f"[ModelCaller] Used fallback embedding model (async): {current_model} (primary {model} failed)")
             return result
         
-        logger.warning(f"[ModelCaller] Embedding model {current_model} failed (async), trying next...")
+        logger.debug(f"[ModelCaller] Embedding model {current_model} failed (async), trying next...")
     
-    # All models in fallback chain failed
-    logger.error(f"[ModelCaller] All embedding models failed (async). Tried: {models_to_try}")
+    # All models in fallback chain failed - graceful degradation
+    global _embedding_warning_logged
+    if not _embedding_warning_logged:
+        logger.error(
+            f"[ModelCaller] All embedding models failed (async). RAG/memory features disabled. "
+            f"Tried: {models_to_try}. Install with: ollama pull {EMBEDDING_FALLBACK_CHAIN[0]}"
+        )
+        _embedding_warning_logged = True
+    else:
+        logger.debug(f"[ModelCaller] Embedding request skipped (async) - no models available")
+    
     cleanup_resources()
+    # Return empty list for graceful degradation - callers should handle this
     return []
 

@@ -423,6 +423,30 @@ class ResearchContext:
     knowledge_context: Optional[str] = None
     # Current phase name for context injection (prevents phase confusion)
     current_phase: Optional[str] = None
+    # Time-awareness fields for depth adjustment
+    time_budget_seconds: Optional[float] = None
+    time_remaining_seconds: Optional[float] = None
+    
+    @property
+    def time_pressure(self) -> str:
+        """
+        Get time pressure level for prompt guidance.
+        
+        Returns:
+            "high" - Limited time, be concise and focus on essentials
+            "low" - Ample time, explore thoroughly
+            "normal" - Balanced approach
+        """
+        if self.time_remaining_seconds is None:
+            return "normal"
+        if self.time_budget_seconds is None or self.time_budget_seconds <= 0:
+            return "normal"
+        ratio = self.time_remaining_seconds / self.time_budget_seconds
+        if ratio < 0.3:
+            return "high"
+        elif ratio > 0.7:
+            return "low"
+        return "normal"
 
 
 @dataclass
@@ -880,6 +904,10 @@ All factual claims MUST cite a source URL. Claims without sources will be marked
 When referencing web search results, include the URL: [Claim] (Source: [URL])
 
 Be focused and incremental. Only add value beyond existing knowledge."""
+            # Add time guidance for incremental mode
+            time_guidance = self._get_time_guidance(research_context)
+            if time_guidance:
+                prompt += time_guidance
         else:
             # FULL RESEARCH MODE
             prompt = f"""## MODE: COMPREHENSIVE RESEARCH
@@ -943,7 +971,47 @@ When referencing web search results, include the URL: [Claim] (Source: [URL])
 
 Be thorough but focused. Prioritize quality and accuracy over quantity."""
 
+        # Add time-aware guidance based on time pressure
+        time_guidance = self._get_time_guidance(research_context)
+        if time_guidance:
+            prompt += time_guidance
+
         return prompt
+    
+    def _get_time_guidance(self, context: ResearchContext) -> str:
+        """
+        Generate time-aware guidance for the prompt.
+        
+        Args:
+            context: Research context with time pressure info
+            
+        Returns:
+            Time guidance string to append to prompt
+        """
+        if not hasattr(context, 'time_pressure'):
+            return ""
+        
+        pressure = context.time_pressure
+        if pressure == "high":
+            return """
+
+## TIME CONSTRAINT
+Limited time available for this phase. Adjust your approach:
+- Focus on the most essential findings only
+- Be concise and direct in your analysis
+- Prioritize depth on critical topics over breadth
+- Skip low-priority tangential research
+- Limit to 3-5 key findings maximum"""
+        elif pressure == "low":
+            return """
+
+## TIME AVAILABLE
+Ample time available for thorough exploration:
+- Explore multiple perspectives and alternatives
+- Provide comprehensive analysis with supporting evidence
+- Consider edge cases and nuanced interpretations
+- Include detailed recommendations with rationale"""
+        return ""
     
     def postprocess(self, consensus_output: Any) -> ResearchFindings:
         """
@@ -1456,6 +1524,20 @@ Be thorough but focused. Prioritize quality and accuracy over quantity."""
         Returns:
             Epistemic query string, or empty string if conversion fails
         """
+        # Strip metadata prefixes that contaminate search queries
+        # These come from iteration_context.py _derive_subgoals() and other sources
+        metadata_prefixes = [
+            "Research:", "Investigate:", "Determine:", "Explain:", 
+            "Reconnaissance", "Gather:", "Analyze:", "Evaluate:",
+            "**Rating**:", "*Rating**:", "Rating:",  # Parsing artifacts
+        ]
+        for prefix in metadata_prefixes:
+            if text.startswith(prefix):
+                text = text[len(prefix):].strip()
+            # Also handle case-insensitive prefix matching
+            if text.lower().startswith(prefix.lower()):
+                text = text[len(prefix):].strip()
+        
         # Remove question words and make it fact-oriented
         text = text.rstrip('?').strip()
         

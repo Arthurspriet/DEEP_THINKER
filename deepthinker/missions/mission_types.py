@@ -548,7 +548,7 @@ class MissionPhase:
         """Check if all steps are in a terminal state."""
         if not self.steps:
             return True
-        return all(s.status in ("completed", "failed", "skipped") for s in self.steps)
+        return all(s.status in ("completed", "completed_degraded", "failed", "skipped") for s in self.steps)
     
     def get_step_summary(self) -> str:
         """Generate a summary of step outputs for context passing."""

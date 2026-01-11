@@ -21,6 +21,22 @@ SEARCH_TRIGGER_KEYWORDS = [
     "research", "study", "data", "statistics", "evidence",
 ]
 
+# Keywords that should trigger arXiv search for scholarly sources
+ARXIV_TRIGGER_KEYWORDS = [
+    "arxiv", "paper", "preprint", "citation", "cite",
+    "latest research", "sota", "state of the art",
+    "systematic review", "scholarly", "academic paper",
+    "peer-reviewed", "literature review", "scientific",
+    "conference paper", "journal article", "publications",
+]
+
+# Keywords that indicate explicit intent to download PDF/source (not just metadata)
+ARXIV_DOWNLOAD_INTENT_KEYWORDS = [
+    "download", "pdf", "full text", "e-print", "source",
+    "read the paper", "retrieve paper", "get the paper pdf",
+    "fetch pdf", "get full paper", "download paper",
+]
+
 # Phase-specific search quotas (minimum expected searches)
 PHASE_SEARCH_QUOTAS = {
     "recon": 1,
@@ -279,6 +295,37 @@ class SearchTriggerManager:
         """Get all search decisions made."""
         return self._decision_log.copy()
     
+    def update_budget_from_time(self, time_remaining_seconds: float) -> None:
+        """
+        Dynamically update search budget based on remaining time.
+        
+        Uses the same time-based scaling as SearchBudgetAllocator:
+        - Less time = fewer searches allowed
+        - Each search estimated at ~30 seconds
+        
+        Args:
+            time_remaining_seconds: Remaining time in the phase/mission
+        """
+        time_remaining_minutes = time_remaining_seconds / 60.0
+        
+        # Reserve 20% of time for other operations
+        available_time = time_remaining_minutes * 0.8
+        
+        # Each search takes ~0.5 minutes (30 seconds)
+        time_per_search = 0.5
+        time_based_budget = int(available_time / time_per_search)
+        
+        # Clamp between 1 and original max
+        new_budget = max(1, min(time_based_budget, self.max_searches_per_mission))
+        
+        # Only reduce budget (never increase from time alone)
+        if new_budget < self.max_searches_per_mission:
+            logger.debug(
+                f"Adjusting search budget from time: {self.max_searches_per_mission} -> {new_budget} "
+                f"({time_remaining_minutes:.1f} min remaining)"
+            )
+            self.max_searches_per_mission = new_budget
+    
     def _check_keywords(self, text: str) -> List[str]:
         """Check if text contains trigger keywords."""
         text_lower = text.lower()
@@ -452,4 +499,160 @@ def get_phase_search_quota(phase: str) -> int:
             return quota
     
     return 0
+
+
+def should_use_arxiv(
+    query: str,
+    mission_context: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """
+    Check if query requires arXiv search for scholarly sources.
+    
+    Returns True if:
+    - Query contains arXiv trigger keywords (paper, citation, arxiv, etc.)
+    - Mission context has NEEDS_SCHOLARLY_SOURCES requirement
+    
+    Args:
+        query: User query or mission objective
+        mission_context: Optional mission context dict with requirements
+        
+    Returns:
+        True if arXiv search should be used
+    """
+    # Check if arXiv is enabled first
+    try:
+        from deepthinker.connectors.arxiv.config import is_arxiv_enabled
+        if not is_arxiv_enabled():
+            return False
+    except ImportError:
+        # arXiv connector not available
+        return False
+    
+    query_lower = query.lower()
+    
+    # Check keywords
+    for keyword in ARXIV_TRIGGER_KEYWORDS:
+        if keyword.lower() in query_lower:
+            return True
+    
+    # Check mission context for scholarly requirement
+    if mission_context:
+        requirements = mission_context.get("requirements", [])
+        if isinstance(requirements, list):
+            for req in requirements:
+                if isinstance(req, str) and "scholarly" in req.lower():
+                    return True
+                if isinstance(req, str) and "NEEDS_SCHOLARLY_SOURCES" in req:
+                    return True
+        
+        # Check tags
+        tags = mission_context.get("tags", [])
+        if isinstance(tags, list):
+            if "scholarly" in tags or "academic" in tags or "research" in tags:
+                return True
+    
+    return False
+
+
+def should_download_arxiv(
+    query: str,
+    plan_metadata: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """
+    Check if query requires arXiv PDF/source download (not just metadata).
+    
+    Download is only triggered when there is explicit user intent for full text,
+    not just for scholarly/paper queries which default to metadata-only search.
+    
+    Returns True if:
+    - Query contains explicit download intent keywords (pdf, download, full text, etc.)
+    - Plan metadata has requires_full_text=True explicitly set
+    
+    Args:
+        query: User query or mission objective
+        plan_metadata: Optional plan metadata dict with requirements
+        
+    Returns:
+        True if arXiv download (PDF/source) should be used
+    """
+    query_lower = query.lower()
+    
+    # Check for explicit download intent keywords
+    for keyword in ARXIV_DOWNLOAD_INTENT_KEYWORDS:
+        if keyword.lower() in query_lower:
+            return True
+    
+    # Check plan metadata for explicit requires_full_text flag
+    if plan_metadata and plan_metadata.get("requires_full_text", False):
+        return True
+    
+    return False
+
+
+def get_arxiv_search_queries(
+    objective: str,
+    data_needs: Optional[List[str]] = None,
+    focus_areas: Optional[List[str]] = None,
+    max_queries: int = 3,
+) -> List[str]:
+    """
+    Generate arXiv search queries from objective and data needs.
+    
+    Converts natural language queries into arXiv query syntax.
+    
+    Args:
+        objective: Mission objective
+        data_needs: List of data needs
+        focus_areas: List of focus areas
+        max_queries: Maximum number of queries to generate
+        
+    Returns:
+        List of arXiv query strings
+    """
+    queries = []
+    
+    # Extract key terms from objective
+    # Simple approach: use the objective as-is for first query
+    if objective:
+        # Clean up for arXiv query
+        clean_obj = objective[:100].strip()
+        # Remove common stop words for better search
+        for word in ["please", "find", "search", "get", "the", "a", "an"]:
+            clean_obj = clean_obj.replace(f" {word} ", " ")
+        if clean_obj:
+            queries.append(f"all:{clean_obj}")
+    
+    # Add data needs as queries
+    if data_needs:
+        for need in data_needs[:2]:
+            if len(need) > 10:
+                clean_need = need[:80].strip().rstrip("?")
+                queries.append(f"all:{clean_need}")
+    
+    # Add focus areas as category-specific queries
+    if focus_areas:
+        for area in focus_areas[:2]:
+            if len(area) > 5:
+                # Try to map to arXiv categories
+                area_lower = area.lower()
+                if "machine learning" in area_lower or "ml" in area_lower:
+                    queries.append(f"cat:cs.LG AND {area[:50]}")
+                elif "natural language" in area_lower or "nlp" in area_lower:
+                    queries.append(f"cat:cs.CL AND {area[:50]}")
+                elif "computer vision" in area_lower or "cv" in area_lower:
+                    queries.append(f"cat:cs.CV AND {area[:50]}")
+                elif "ai" in area_lower or "artificial intelligence" in area_lower:
+                    queries.append(f"cat:cs.AI AND {area[:50]}")
+                else:
+                    queries.append(f"all:{area[:80]}")
+    
+    # Deduplicate
+    seen = set()
+    unique = []
+    for q in queries:
+        if q.lower() not in seen:
+            seen.add(q.lower())
+            unique.append(q)
+    
+    return unique[:max_queries]
 

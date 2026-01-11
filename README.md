@@ -48,6 +48,192 @@ Missions execute through structured phases, each with time budgets:
 3. **Deep Analysis** - In-depth investigation using evidence and evaluation councils
 4. **Synthesis & Report** - Consolidate findings into actionable outputs
 
+### Mission Execution Flow
+
+When a mission is launched, the system activates multiple layers working in concert. Here's the complete execution flow:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant User
+    participant CLI_API as CLI/API
+    participant MO as MissionOrchestrator
+    participant TM as TimeManager
+    participant CS as CognitiveSpine
+    participant Councils as Councils Layer
+    participant SE as StepExecutor
+    participant Consensus as Consensus Engine
+    participant Arbiter as Arbiter
+    participant Gov as Governance Layer
+    participant Align as Alignment Layer
+    participant Meta as Meta-Cognition
+    participant Memory as Memory Layer
+    participant Tools as Tools Layer
+    participant LLM as Ollama LLMs
+
+    User->>CLI_API: Start mission with objective
+    CLI_API->>MO: create_mission(objective, constraints)
+    
+    Note over MO: Parallel Initialization
+    MO->>TM: Allocate time budget per phase
+    MO->>Memory: Initialize RAG store
+    MO->>Councils: Setup councils with GPU manager
+    MO->>CS: Initialize CognitiveSpine
+    MO->>Meta: Setup MetaController
+    MO->>Align: Create AlignmentManager with NorthStar
+    
+    loop For Each Phase
+        MO->>TM: Check time remaining
+        MO->>Gov: Get phase contract
+        
+        alt Step-based execution
+            MO->>SE: Execute phase steps
+            SE->>LLM: Run single model per step
+            LLM-->>SE: Step result
+        else Council-based execution
+            MO->>Councils: Delegate to appropriate council
+            Councils->>LLM: Multi-model generation
+            LLM-->>Councils: Raw outputs
+            Councils->>Consensus: Reach consensus
+            Consensus-->>Councils: Consensus result
+        end
+        
+        Councils-->>MO: Phase artifacts
+        
+        MO->>Gov: Evaluate phase output
+        Gov-->>MO: Verdict ALLOW/WARN/BLOCK
+        
+        MO->>Align: Check drift from objective
+        Align-->>MO: Alignment actions
+        
+        MO->>Meta: Process phase for reflection
+        Meta->>Meta: Reflect, update hypotheses
+        Meta->>Meta: Internal debate
+        Meta-->>MO: Plan revisions
+        
+        MO->>Memory: Store phase artifacts
+        MO->>CS: Compress memory if needed
+        
+        MO->>MO: Checkpoint state
+    end
+    
+    MO->>Arbiter: Reconcile all council outputs
+    Arbiter-->>MO: Final decision
+    
+    MO->>Memory: Store mission summary
+    MO-->>CLI_API: Mission completed with artifacts
+    CLI_API-->>User: Final output
+```
+
+### System Component Layers
+
+The following diagram shows all system layers and their relationships:
+
+```mermaid
+flowchart TB
+    subgraph Entry [Entry Points]
+        CLI[CLI main.py]
+        API[FastAPI Server]
+        WebUI[React Frontend]
+    end
+    
+    subgraph Orchestration [Orchestration Layer]
+        MO[MissionOrchestrator]
+        TM[TimeManager]
+        CS[CognitiveSpine]
+    end
+    
+    subgraph Council [Council Layer]
+        PC[PlannerCouncil]
+        RC[ResearcherCouncil]
+        CC[CoderCouncil]
+        EC[EvaluatorCouncil]
+        SC[SimulationCouncil]
+        MV[MultiView Optimist/Skeptic]
+    end
+    
+    subgraph Execution [Execution Layer]
+        SE[StepExecutor]
+        PV[PhaseValidator]
+    end
+    
+    subgraph ConsensusLayer [Consensus Layer]
+        Vote[MajorityVote]
+        Blend[WeightedBlend]
+        Critique[CritiqueExchange]
+        SemDist[SemanticDistance]
+    end
+    
+    subgraph Safety [Safety and Governance]
+        Gov[NormativeController]
+        PG[PhaseGuard]
+        CV[ClaimValidator]
+        WSG[WebSearchGate]
+    end
+    
+    subgraph AlignLayer [Alignment Layer]
+        AM[AlignmentManager]
+        DD[DriftDetector]
+        AC[AlignmentController]
+    end
+    
+    subgraph MetaLayer [Meta-Cognition]
+        MC[MetaController]
+        RE[ReflectionEngine]
+        HM[HypothesisManager]
+        DE[DebateEngine]
+        RS[ReasoningSupervisor]
+    end
+    
+    subgraph MemoryLayer [Memory Layer]
+        MM[MemoryManager]
+        RAG[RAG Store]
+        GK[GeneralKnowledge]
+        MG[MemoryGuard]
+    end
+    
+    subgraph ToolsLayer [Tools Layer]
+        WS[WebSearchTool]
+        CE[CodeExecution Docker]
+        ST[SearchTriggers]
+        TI[ToolingIntegration]
+    end
+    
+    subgraph Model [Model Layer]
+        MP[ModelPool]
+        GPU[GPUManager]
+        Ollama[Ollama LLMs]
+    end
+    
+    Entry --> Orchestration
+    Orchestration --> Council
+    Orchestration --> Execution
+    Council --> ConsensusLayer
+    ConsensusLayer --> Arbiter[Arbiter]
+    
+    Orchestration --> Safety
+    Orchestration --> AlignLayer
+    Orchestration --> MetaLayer
+    
+    Council --> MemoryLayer
+    Council --> ToolsLayer
+    
+    Execution --> Model
+    Council --> Model
+    ToolsLayer --> Model
+```
+
+### Components Active Per Phase
+
+| Phase | Primary Council | Key Tools | Safety Checks | Meta-Cognition |
+|-------|-----------------|-----------|---------------|----------------|
+| **Reconnaissance** | ResearcherCouncil | WebSearchTool, RAG Store | WebSearchGate, ClaimValidator | Reflection, Hypothesis Init |
+| **Analysis & Planning** | PlannerCouncil | GeneralKnowledge | PhaseGuard | Debate, Plan Revision |
+| **Deep Analysis** | EvaluatorCouncil, EvidenceCouncil | SearchTriggers, ToolingIntegration | NormativeController, ClaimValidator | Hypothesis Update, Deepening |
+| **Synthesis** | PlannerCouncil | MemoryManager | PhaseValidator | Final Reflection |
+
+**Always Active:** CognitiveSpine (schema validation), AlignmentManager (drift detection), TimeManager (budget tracking), Consensus Engine (multi-model agreement), Arbiter (final reconciliation)
+
 ## Features
 
 ### Core Capabilities

@@ -44,6 +44,30 @@ class EvaluatorContext:
     knowledge_context: Optional[str] = None
     # Task type: "code", "research", "document", "analysis" - affects evaluation criteria
     task_type: str = "auto"  # "auto" attempts to detect from content
+    # Time-awareness fields for depth adjustment
+    time_budget_seconds: Optional[float] = None
+    time_remaining_seconds: Optional[float] = None
+    
+    @property
+    def time_pressure(self) -> str:
+        """
+        Get time pressure level for prompt guidance.
+        
+        Returns:
+            "high" - Limited time, be concise and focus on essentials
+            "low" - Ample time, explore thoroughly
+            "normal" - Balanced approach
+        """
+        if self.time_remaining_seconds is None:
+            return "normal"
+        if self.time_budget_seconds is None or self.time_budget_seconds <= 0:
+            return "normal"
+        ratio = self.time_remaining_seconds / self.time_budget_seconds
+        if ratio < 0.3:
+            return "high"
+        elif ratio > 0.7:
+            return "low"
+        return "normal"
 
 
 @dataclass
@@ -59,6 +83,30 @@ class ResearchEvaluationContext:
     prior_gaps: List[str] = field(default_factory=list)  # Gaps from previous iteration
     # Knowledge context from RAG retrieval
     knowledge_context: Optional[str] = None
+    # Time-awareness fields for depth adjustment
+    time_budget_seconds: Optional[float] = None
+    time_remaining_seconds: Optional[float] = None
+    
+    @property
+    def time_pressure(self) -> str:
+        """
+        Get time pressure level for prompt guidance.
+        
+        Returns:
+            "high" - Limited time, be concise and focus on essentials
+            "low" - Ample time, explore thoroughly
+            "normal" - Balanced approach
+        """
+        if self.time_remaining_seconds is None:
+            return "normal"
+        if self.time_budget_seconds is None or self.time_budget_seconds <= 0:
+            return "normal"
+        ratio = self.time_remaining_seconds / self.time_budget_seconds
+        if ratio < 0.3:
+            return "high"
+        elif ratio > 0.7:
+            return "low"
+        return "normal"
 
 
 @dataclass
@@ -430,7 +478,46 @@ List any data, evidence, or external sources that would improve the evaluation:
 ### SUMMARY
 Brief overall assessment."""
 
+        # Add time-aware guidance based on time pressure
+        time_guidance = self._get_time_guidance(evaluator_context)
+        if time_guidance:
+            prompt += time_guidance
+
         return prompt
+    
+    def _get_time_guidance(self, context: EvaluatorContext) -> str:
+        """
+        Generate time-aware guidance for the prompt.
+        
+        Args:
+            context: Evaluator context with time pressure info
+            
+        Returns:
+            Time guidance string to append to prompt
+        """
+        if not hasattr(context, 'time_pressure'):
+            return ""
+        
+        pressure = context.time_pressure
+        if pressure == "high":
+            return """
+
+## TIME CONSTRAINT
+Limited time available for this phase. Adjust your approach:
+- Focus on critical issues only
+- Provide concise evaluation
+- Skip minor/stylistic issues
+- Prioritize actionable feedback"""
+        elif pressure == "low":
+            return """
+
+## TIME AVAILABLE
+Ample time available for thorough evaluation:
+- Provide comprehensive assessment
+- Include detailed improvement suggestions
+- Evaluate edge cases and corner scenarios
+- Consider broader implications"""
+        return ""
     
     def _detect_task_type(self, context: EvaluatorContext) -> str:
         """

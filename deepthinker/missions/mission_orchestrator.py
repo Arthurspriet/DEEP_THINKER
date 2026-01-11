@@ -2204,6 +2204,48 @@ class MissionOrchestrator:
         if decision:
             self._apply_supervisor_decision(council, decision)
     
+    def _get_phase_time_info(
+        self,
+        state: "MissionState",
+        phase: Optional["MissionPhase"] = None
+    ) -> tuple:
+        """
+        Get time budget and remaining time for current phase.
+        
+        Used to populate council contexts with time-awareness fields,
+        enabling councils to adjust their depth based on available time.
+        
+        Args:
+            state: Current mission state
+            phase: Optional specific phase, defaults to current phase
+            
+        Returns:
+            Tuple of (time_budget_seconds, time_remaining_seconds)
+            Both may be None if time tracking is not available.
+        """
+        if phase is None:
+            phase = state.current_phase()
+        
+        if phase is None:
+            return None, None
+        
+        time_budget_seconds = phase.time_budget_seconds
+        time_remaining_seconds = None
+        
+        # Calculate remaining time for this phase
+        if time_budget_seconds is not None:
+            phase.update_time_used()
+            time_remaining_seconds = phase.time_budget_remaining()
+        
+        # Fall back to mission-level remaining time if phase budget not set
+        if time_remaining_seconds is None:
+            time_remaining_seconds = state.remaining_time().total_seconds()
+            # Use mission constraint as budget if phase budget not set
+            if time_budget_seconds is None:
+                time_budget_seconds = state.constraints.time_budget_minutes * 60
+        
+        return time_budget_seconds, time_remaining_seconds
+    
     def create_mission(
         self,
         objective: str,
@@ -3160,7 +3202,7 @@ Start your response with the phases:"""
             # If phase is already in a terminal state, advance past it immediately
             # This prevents infinite loops when phases are already failed/completed/skipped
             # from previous iterations or resets
-            if phase.status in ("completed", "failed", "skipped"):
+            if phase.status in ("completed", "completed_degraded", "failed", "skipped"):
                 state.advance_phase()
                 self.store.save(state)
                 if heartbeat_callback:
@@ -3192,8 +3234,8 @@ Start your response with the phases:"""
                 
                 self._run_phase(state, phase)
                 
-                # Advance to next phase if completed
-                if phase.status in ("completed", "failed", "skipped"):
+                # Advance to next phase if completed (including degraded completion)
+                if phase.status in ("completed", "completed_degraded", "failed", "skipped"):
                     # Track consecutive failures to prevent infinite loops
                     if phase.status == "failed":
                         failure_count = self._phase_failure_counts.get(phase.name, 0) + 1
@@ -4158,11 +4200,16 @@ Start your response with the phases:"""
             # Prepare and run the appropriate council for enrichment
             self._prepare_council_for_execution(self.researcher, state, decision)
             
+            # Get time info for time-aware council execution
+            enrich_time_budget, enrich_time_remaining = self._get_phase_time_info(state, phase)
+            
             # Use researcher council for enrichment (it's the most general)
             research_ctx = ResearchContext(
                 objective=f"Enrich analysis for phase '{phase.name}': {enrichment_prompt}",
                 prior_knowledge=truncated_output[:2000],
                 constraints=None,
+                time_budget_seconds=enrich_time_budget,
+                time_remaining_seconds=enrich_time_remaining,
             )
             
             result = self.researcher.execute(research_ctx)
@@ -4233,13 +4280,19 @@ Start your response with the phases:"""
                 state.log("Deepening stopped - insufficient time")
                 break
             
+            # Get time info for deepening councils
+            deepen_time_remaining = state.remaining_time().total_seconds()
+            deepen_time_budget = state.constraints.time_budget_minutes * 60
+            
             # Run researcher if needed
             if plan.run_researcher and state.remaining_minutes() > 0.5:
                 try:
                     research_ctx = ResearchContext(
                         objective=f"Deepen analysis: {state.objective}",
                         prior_knowledge=context[:3000],
-                        constraints=None
+                        constraints=None,
+                        time_budget_seconds=deepen_time_budget,
+                        time_remaining_seconds=deepen_time_remaining,
                     )
                     self._prepare_council_for_execution(self.researcher, state, decision)
                     result = self.researcher.execute(research_ctx)
@@ -4257,7 +4310,9 @@ Start your response with the phases:"""
                     planner_ctx = PlannerContext(
                         objective=f"Refine plan: {state.objective}",
                         context={"prior_work": context[:2000]},
-                        max_iterations=1
+                        max_iterations=1,
+                        time_budget_seconds=deepen_time_budget,
+                        time_remaining_seconds=deepen_time_remaining,
                     )
                     self._prepare_council_for_execution(self.planner, state, decision)
                     result = self.planner.execute(planner_ctx)
@@ -4274,7 +4329,9 @@ Start your response with the phases:"""
                     eval_ctx = EvaluatorContext(
                         objective=f"Evaluate progress: {state.objective}",
                         content_to_evaluate=context[:3000],
-                        quality_threshold=6.0
+                        quality_threshold=6.0,
+                        time_budget_seconds=deepen_time_budget,
+                        time_remaining_seconds=deepen_time_remaining,
                     )
                     self._prepare_council_for_execution(self.evaluator, state, decision)
                     result = self.evaluator.execute(eval_ctx)
@@ -6231,12 +6288,17 @@ Start your response with the phases:"""
 Provide your analysis in a structured format with clear sections for each category.
 Focus on actionable insights and testable predictions."""
 
+                # Get time info for time-aware council execution
+                deep_time_budget, deep_time_remaining = self._get_phase_time_info(state, phase)
+                
                 planner_ctx = PlannerContext(
                     objective=state.objective,
                     context={
                         "analysis_prompt": planner_prompt,
                         "constraints": state.constraints.as_dict(),
                     },
+                    time_budget_seconds=deep_time_budget,
+                    time_remaining_seconds=deep_time_remaining,
                 )
                 
                 self._prepare_council_for_execution(self.planner, state, decision)
@@ -6323,6 +6385,8 @@ Focus on actionable insights and testable predictions."""
                     code="",  # No code for analysis mode
                     objective=f"Stress-test potential scenarios and edge cases for {state.objective}:\n{scenarios_str}",
                     focus_scenarios=[s[:200] for s in deep_analysis_result["scenarios"][:3]] if deep_analysis_result["scenarios"] else [],
+                    time_budget_seconds=deep_time_budget,
+                    time_remaining_seconds=deep_time_remaining,
                 )
                 
                 self._prepare_council_for_execution(self.simulator, state, decision)
@@ -6352,6 +6416,8 @@ Focus on actionable insights and testable predictions."""
                     objective=state.objective,
                     iteration=1,
                     prior_analysis=f"Scenarios: {deep_analysis_result['scenarios']}\nRisks: {deep_analysis_result['failure_modes']}",
+                    time_budget_seconds=deep_time_budget,
+                    time_remaining_seconds=deep_time_remaining,
                 )
                 
                 self._prepare_council_for_execution(self.evaluator, state, decision)
@@ -6404,6 +6470,8 @@ Focus on actionable insights and testable predictions."""
                 research_ctx = ResearchContext(
                     objective=f"Address these knowledge gaps for '{state.objective}':\n{gaps_str}",
                     prior_knowledge=prior_context[:2000],
+                    time_budget_seconds=deep_time_budget,
+                    time_remaining_seconds=deep_time_remaining,
                 )
                 
                 self._prepare_council_for_execution(self.researcher, state, decision)
@@ -7078,6 +7146,9 @@ Focus on actionable insights and testable predictions."""
         # Extract planner artifacts from previous phases for context propagation
         focus_areas, planner_requirements = self._extract_planner_context(state)
         
+        # Get time info for time-aware council execution
+        time_budget, time_remaining = self._get_phase_time_info(state, phase)
+        
         research_context = ResearchContext(
             objective=f"{state.objective}\n\nPhase: {phase.name}\n{phase.description}",
             focus_areas=focus_areas,  # Pass planner focus areas
@@ -7091,6 +7162,8 @@ Focus on actionable insights and testable predictions."""
             subgoals=subgoals,
             knowledge_context=knowledge_ctx,
             current_phase=phase.name,  # Inject phase name to prevent confusion
+            time_budget_seconds=time_budget,
+            time_remaining_seconds=time_remaining,
         )
         
         # Log iteration context
@@ -7102,6 +7175,10 @@ Focus on actionable insights and testable predictions."""
         trigger_search = research_context.allow_internet
         search_rationale = ""
         if self._has_search_triggers and self._search_trigger_manager:
+            # Update search budget based on phase time remaining
+            if time_remaining is not None:
+                self._search_trigger_manager.update_budget_from_time(time_remaining)
+            
             # Get uncertainty from convergence state
             uncertainty = 0.5
             if self._convergence_state:
@@ -7139,6 +7216,8 @@ Focus on actionable insights and testable predictions."""
             subgoals=subgoals,
             knowledge_context=knowledge_ctx,
             current_phase=research_context.current_phase,  # Preserve phase context
+            time_budget_seconds=research_context.time_budget_seconds,  # Preserve time info
+            time_remaining_seconds=research_context.time_remaining_seconds,
         )
         
         # Verbose logging: council activation
@@ -7283,12 +7362,17 @@ Focus on actionable insights and testable predictions."""
         if hasattr(state, 'knowledge_context') and state.knowledge_context:
             knowledge_ctx = state.knowledge_context.get("formatted", "")
         
+        # Get time info for time-aware council execution
+        time_budget, time_remaining = self._get_phase_time_info(state, phase)
+        
         # Use planner for design
         planner_context = PlannerContext(
             objective=f"{state.objective}\n\nPhase: {phase.name}\n{phase.description}",
             context={"prior_work": context},
             max_iterations=min(3, state.constraints.max_iterations),
             knowledge_context=knowledge_ctx,
+            time_budget_seconds=time_budget,
+            time_remaining_seconds=time_remaining,
         )
         
         # Verbose logging: council activation
@@ -7349,6 +7433,8 @@ Focus on actionable insights and testable predictions."""
                 content_to_evaluate=design_content,  # Design document to evaluate
                 quality_threshold=6.0,
                 knowledge_context=eval_knowledge,
+                time_budget_seconds=time_budget,
+                time_remaining_seconds=time_remaining,
             )
             eval_result = self.evaluator.execute(eval_context)
             if eval_result.success and eval_result.output:
@@ -7390,10 +7476,15 @@ Focus on actionable insights and testable predictions."""
                 if p.artifacts.get("design"):
                     design_reqs += p.artifacts["design"] + "\n"
         
+        # Get time info for time-aware council execution
+        time_budget, time_remaining = self._get_phase_time_info(state, phase)
+        
         coder_context = CoderContext(
             objective=f"{state.objective}\n\nPhase: {phase.name}\n{phase.description}",
             research_findings=research_findings if research_findings else None,
-            planner_requirements=design_reqs if design_reqs else None
+            planner_requirements=design_reqs if design_reqs else None,
+            time_budget_seconds=time_budget,
+            time_remaining_seconds=time_remaining,
         )
         
         # Verbose logging: council activation
@@ -7435,7 +7526,9 @@ Focus on actionable insights and testable predictions."""
             eval_context = EvaluatorContext(
                 objective=state.objective,
                 content_to_evaluate=phase.artifacts["code"],
-                quality_threshold=7.0
+                quality_threshold=7.0,
+                time_budget_seconds=time_budget,
+                time_remaining_seconds=time_remaining,
             )
             eval_result = self.evaluator.execute(eval_context)
             if eval_result.success and eval_result.output:
@@ -7491,9 +7584,14 @@ Focus on actionable insights and testable predictions."""
         if not state.constraints.allow_code_execution:
             state.log("Code execution disabled - running simulation analysis only")
         
+        # Get time info for time-aware council execution
+        time_budget, time_remaining = self._get_phase_time_info(state, phase)
+        
         sim_context = SimulationContext(
             code=code,
-            objective=state.objective
+            objective=state.objective,
+            time_budget_seconds=time_budget,
+            time_remaining_seconds=time_remaining,
         )
         
         # Verbose logging: council activation

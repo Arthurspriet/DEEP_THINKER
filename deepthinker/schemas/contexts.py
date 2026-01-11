@@ -78,6 +78,8 @@ class ResearchContextSchema(SchemaBase):
     subgoals: List[str] = field(default_factory=list)
     # RAG knowledge context (Sprint 35)
     knowledge_context: Optional[str] = None
+    # Phase context (prevents phase confusion in multi-phase missions)
+    current_phase: Optional[str] = None
 
 
 @dataclass
@@ -148,6 +150,15 @@ class EvaluatorContextSchema(SchemaBase):
     focus_areas: List[str] = field(default_factory=list)
     # RAG knowledge context (Sprint 35)
     knowledge_context: Optional[str] = None
+    # Additional context fields used by EvaluatorCouncil (prevents stripping)
+    task_type: str = "auto"  # "code", "research", "document", "analysis"
+    prior_analysis: Optional[str] = None
+    previous_evaluation: Optional[Any] = None
+    iteration: int = 1
+    allow_internet: bool = False
+    web_searches_performed: bool = False
+    research_findings: Optional[str] = None
+    metric_result: Optional[Any] = None
 
 
 @dataclass

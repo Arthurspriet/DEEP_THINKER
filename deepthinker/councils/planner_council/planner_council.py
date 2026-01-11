@@ -45,6 +45,30 @@ class PlannerContext:
     simulation_config: Optional[Any] = None
     # Knowledge context from RAG retrieval
     knowledge_context: Optional[str] = None
+    # Time-awareness fields for depth adjustment
+    time_budget_seconds: Optional[float] = None
+    time_remaining_seconds: Optional[float] = None
+    
+    @property
+    def time_pressure(self) -> str:
+        """
+        Get time pressure level for prompt guidance.
+        
+        Returns:
+            "high" - Limited time, be concise and focus on essentials
+            "low" - Ample time, explore thoroughly
+            "normal" - Balanced approach
+        """
+        if self.time_remaining_seconds is None:
+            return "normal"
+        if self.time_budget_seconds is None or self.time_budget_seconds <= 0:
+            return "normal"
+        ratio = self.time_remaining_seconds / self.time_budget_seconds
+        if ratio < 0.3:
+            return "high"
+        elif ratio > 0.7:
+            return "low"
+        return "normal"
 
 
 @dataclass
@@ -68,6 +92,30 @@ class SynthesisContext:
     addressed_issues: List[str] = field(default_factory=list)  # Issues resolved this iteration
     # Knowledge context from RAG retrieval
     knowledge_context: Optional[str] = None
+    # Time-awareness fields for depth adjustment
+    time_budget_seconds: Optional[float] = None
+    time_remaining_seconds: Optional[float] = None
+    
+    @property
+    def time_pressure(self) -> str:
+        """
+        Get time pressure level for prompt guidance.
+        
+        Returns:
+            "high" - Limited time, be concise and focus on essentials
+            "low" - Ample time, explore thoroughly
+            "normal" - Balanced approach
+        """
+        if self.time_remaining_seconds is None:
+            return "normal"
+        if self.time_budget_seconds is None or self.time_budget_seconds <= 0:
+            return "normal"
+        ratio = self.time_remaining_seconds / self.time_budget_seconds
+        if ratio < 0.3:
+            return "high"
+        elif ratio > 0.7:
+            return "low"
+        return "normal"
     
     def has_work_remaining(self) -> bool:
         """Check if there are gaps or issues requiring more synthesis."""
@@ -328,7 +376,46 @@ Describe the iteration approach:
 
 Produce a complete, actionable plan."""
 
+        # Add time-aware guidance based on time pressure
+        time_guidance = self._get_time_guidance(planner_context)
+        if time_guidance:
+            prompt += time_guidance
+
         return prompt
+    
+    def _get_time_guidance(self, context: PlannerContext) -> str:
+        """
+        Generate time-aware guidance for the prompt.
+        
+        Args:
+            context: Planner context with time pressure info
+            
+        Returns:
+            Time guidance string to append to prompt
+        """
+        if not hasattr(context, 'time_pressure'):
+            return ""
+        
+        pressure = context.time_pressure
+        if pressure == "high":
+            return """
+
+## TIME CONSTRAINT
+Limited time available for this phase. Adjust your approach:
+- Create a streamlined, focused plan
+- Prioritize essential phases only
+- Recommend fewer iterations
+- Focus on core requirements, defer nice-to-haves"""
+        elif pressure == "low":
+            return """
+
+## TIME AVAILABLE
+Ample time available for thorough planning:
+- Create a comprehensive, detailed plan
+- Include contingency strategies
+- Plan for thorough validation phases
+- Consider multiple alternative approaches"""
+        return ""
     
     def postprocess(self, consensus_output: Any) -> WorkflowPlan:
         """

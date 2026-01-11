@@ -73,6 +73,7 @@ def extract_routing_features(context: RoutingContext) -> Dict[str, float]:
     features["task_type_analysis"] = 1.0 if task_type == "analysis" else 0.0
     features["task_type_creative"] = 1.0 if task_type == "creative" else 0.0
     features["task_type_planning"] = 1.0 if task_type == "planning" else 0.0
+    features["task_type_scholarly"] = 1.0 if task_type == "scholarly" else 0.0
     
     # Phase features (one-hot encoded common phases)
     phase = context.phase_name.lower()
@@ -147,6 +148,15 @@ def _classify_task_type(objective: str) -> str:
         Task type string
     """
     objective_lower = objective.lower()
+    
+    # Scholarly/academic indicators (check first as more specific)
+    scholarly_keywords = [
+        "arxiv", "paper", "preprint", "citation", "cite",
+        "literature review", "systematic review", "scholarly",
+        "academic", "peer-reviewed", "journal", "conference paper",
+    ]
+    if any(kw in objective_lower for kw in scholarly_keywords):
+        return "scholarly"
     
     # Research indicators
     research_keywords = ["research", "find", "search", "investigate", "explore", "learn"]
@@ -227,6 +237,7 @@ def get_feature_names() -> List[str]:
         "task_type_analysis",
         "task_type_creative",
         "task_type_planning",
+        "task_type_scholarly",
         # Phase
         "phase_research",
         "phase_plan",

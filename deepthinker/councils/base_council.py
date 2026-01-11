@@ -1135,15 +1135,32 @@ PROCEED WITH THE ASSIGNED ANALYSIS:
         
         # Check common structured output patterns
         output_dict = {}
+        raw_output = ""
         if hasattr(output, '__dict__'):
             output_dict = output.__dict__
+            raw_output = str(output_dict.get('raw_output', '')) or str(output_dict.get('output', ''))
         elif isinstance(output, dict):
             output_dict = output
+            raw_output = str(output_dict.get('raw_output', '')) or str(output_dict.get('output', ''))
         
         # Planner: check for scenarios or trade_offs
         if self.council_name == "planner_council":
             scenarios = output_dict.get('scenarios', [])
             trade_offs = output_dict.get('trade_offs', [])
+            
+            # Try text-based extraction if structured fields empty
+            if len(scenarios) == 0 and raw_output:
+                scenarios = self._extract_scenarios_from_text(raw_output)
+                if scenarios:
+                    output_dict['scenarios'] = scenarios
+                    logger.debug(f"[{self.council_name}] Extracted {len(scenarios)} scenarios from text")
+            
+            if len(trade_offs) == 0 and raw_output:
+                trade_offs = self._extract_trade_offs_from_text(raw_output)
+                if trade_offs:
+                    output_dict['trade_offs'] = trade_offs
+                    logger.debug(f"[{self.council_name}] Extracted {len(trade_offs)} trade-offs from text")
+            
             if len(scenarios) == 0 or len(trade_offs) == 0:
                 is_empty = True
                 if len(scenarios) == 0:
@@ -1154,6 +1171,14 @@ PROCEED WITH THE ASSIGNED ANALYSIS:
         # Researcher: check for findings
         elif self.council_name == "researcher_council":
             findings = output_dict.get('key_points', []) or output_dict.get('findings', [])
+            
+            # Try text-based extraction if structured fields empty
+            if len(findings) == 0 and raw_output:
+                findings = self._extract_findings_from_text(raw_output)
+                if findings:
+                    output_dict['key_points'] = findings
+                    logger.debug(f"[{self.council_name}] Extracted {len(findings)} findings from text")
+            
             if len(findings) == 0:
                 is_empty = True
                 empty_fields.append("findings")
@@ -1162,6 +1187,17 @@ PROCEED WITH THE ASSIGNED ANALYSIS:
         elif self.council_name == "evaluator_council":
             risks = output_dict.get('risks', [])
             opportunities = output_dict.get('opportunities', [])
+            
+            # Try text-based extraction if structured fields empty
+            if len(risks) == 0 and len(opportunities) == 0 and raw_output:
+                risks, opportunities = self._extract_risks_opportunities_from_text(raw_output)
+                if risks:
+                    output_dict['risks'] = risks
+                if opportunities:
+                    output_dict['opportunities'] = opportunities
+                if risks or opportunities:
+                    logger.debug(f"[{self.council_name}] Extracted {len(risks)} risks, {len(opportunities)} opportunities from text")
+            
             if len(risks) == 0 and len(opportunities) == 0:
                 is_empty = True
                 empty_fields.append("risks and opportunities")
@@ -1169,6 +1205,14 @@ PROCEED WITH THE ASSIGNED ANALYSIS:
         # Simulation: check for scenarios
         elif self.council_name == "simulation_council":
             scenarios = output_dict.get('scenarios', [])
+            
+            # Try text-based extraction if structured fields empty
+            if len(scenarios) == 0 and raw_output:
+                scenarios = self._extract_scenarios_from_text(raw_output)
+                if scenarios:
+                    output_dict['scenarios'] = scenarios
+                    logger.debug(f"[{self.council_name}] Extracted {len(scenarios)} scenarios from text")
+            
             if len(scenarios) == 0:
                 is_empty = True
                 empty_fields.append("scenarios")
@@ -1347,6 +1391,153 @@ Do not leave these fields empty. Be specific and provide concrete examples or an
         )
         
         return not has_content
+    
+    def _extract_scenarios_from_text(self, text: str) -> List[str]:
+        """
+        Extract scenarios from raw text output when structured field is empty.
+        
+        Looks for numbered lists, section headers like "Scenario 1:", etc.
+        
+        Args:
+            text: Raw text output to parse
+            
+        Returns:
+            List of extracted scenario descriptions
+        """
+        import re
+        scenarios = []
+        
+        # Pattern 1: "Scenario N:" or "Scenario N -" headers
+        scenario_pattern = re.compile(
+            r'(?:Scenario\s*\d+\s*[:\-]|##?\s*Scenario\s*\d+)\s*(.+?)(?=(?:Scenario\s*\d+|##?\s*Scenario|$))',
+            re.IGNORECASE | re.DOTALL
+        )
+        matches = scenario_pattern.findall(text)
+        for match in matches[:5]:
+            scenario = match.strip()[:300]  # Limit length
+            if len(scenario) > 20:
+                scenarios.append(scenario)
+        
+        # Pattern 2: Numbered lists starting with scenario keywords
+        if not scenarios:
+            numbered_pattern = re.compile(
+                r'(?:^|\n)\s*\d+[\.\)]\s*(.+?)(?=(?:\n\s*\d+[\.\)]|\n\n|$))',
+                re.DOTALL
+            )
+            matches = numbered_pattern.findall(text)
+            for match in matches[:5]:
+                item = match.strip()[:300]
+                if len(item) > 20 and any(kw in item.lower() for kw in ['scenario', 'case', 'situation', 'possibility']):
+                    scenarios.append(item)
+        
+        return scenarios[:3]  # Max 3 scenarios
+    
+    def _extract_trade_offs_from_text(self, text: str) -> List[str]:
+        """
+        Extract trade-offs from raw text output when structured field is empty.
+        
+        Args:
+            text: Raw text output to parse
+            
+        Returns:
+            List of extracted trade-off descriptions
+        """
+        import re
+        trade_offs = []
+        
+        # Look for trade-off keywords
+        trade_off_keywords = ['trade-off', 'tradeoff', 'trade off', 'vs', 'versus', 'balance', 'compromise']
+        
+        # Pattern: Lines containing trade-off keywords
+        lines = text.split('\n')
+        for line in lines:
+            line = line.strip()
+            if len(line) > 20 and any(kw in line.lower() for kw in trade_off_keywords):
+                # Clean up the line
+                cleaned = re.sub(r'^[\-\*•\d\.]+\s*', '', line)[:200]
+                if len(cleaned) > 15:
+                    trade_offs.append(cleaned)
+        
+        # Pattern: "X vs Y" or "X versus Y" patterns
+        vs_pattern = re.compile(r'(\w+(?:\s+\w+){0,3})\s+(?:vs\.?|versus)\s+(\w+(?:\s+\w+){0,3})', re.IGNORECASE)
+        matches = vs_pattern.findall(text)
+        for match in matches[:3]:
+            trade_off = f"{match[0].strip()} vs {match[1].strip()}"
+            if trade_off not in trade_offs:
+                trade_offs.append(trade_off)
+        
+        return trade_offs[:5]  # Max 5 trade-offs
+    
+    def _extract_findings_from_text(self, text: str) -> List[str]:
+        """
+        Extract key findings from raw text output when structured field is empty.
+        
+        Args:
+            text: Raw text output to parse
+            
+        Returns:
+            List of extracted findings/key points
+        """
+        import re
+        findings = []
+        
+        # Pattern 1: Bullet points or numbered lists
+        bullet_pattern = re.compile(r'(?:^|\n)\s*[\-\*•]\s*(.+?)(?=(?:\n\s*[\-\*•]|\n\n|$))', re.DOTALL)
+        matches = bullet_pattern.findall(text)
+        for match in matches[:10]:
+            finding = match.strip()[:200]
+            if len(finding) > 15:
+                findings.append(finding)
+        
+        # Pattern 2: "Key finding:" or "Finding:" headers
+        finding_pattern = re.compile(
+            r'(?:Key\s+)?(?:Finding|Point|Insight)\s*\d*\s*[:\-]\s*(.+?)(?=(?:Finding|Point|Insight|\n\n|$))',
+            re.IGNORECASE | re.DOTALL
+        )
+        matches = finding_pattern.findall(text)
+        for match in matches[:5]:
+            finding = match.strip()[:200]
+            if len(finding) > 15 and finding not in findings:
+                findings.append(finding)
+        
+        return findings[:10]  # Max 10 findings
+    
+    def _extract_risks_opportunities_from_text(self, text: str) -> Tuple[List[str], List[str]]:
+        """
+        Extract risks and opportunities from raw text output when structured fields are empty.
+        
+        Args:
+            text: Raw text output to parse
+            
+        Returns:
+            Tuple of (risks list, opportunities list)
+        """
+        import re
+        risks = []
+        opportunities = []
+        
+        risk_keywords = ['risk', 'danger', 'threat', 'concern', 'issue', 'problem', 'challenge', 'weakness']
+        opportunity_keywords = ['opportunity', 'benefit', 'advantage', 'strength', 'potential', 'upside']
+        
+        lines = text.split('\n')
+        for line in lines:
+            line = line.strip()
+            if len(line) < 15:
+                continue
+            
+            cleaned = re.sub(r'^[\-\*•\d\.]+\s*', '', line)[:200]
+            if len(cleaned) < 15:
+                continue
+            
+            line_lower = line.lower()
+            if any(kw in line_lower for kw in risk_keywords):
+                if cleaned not in risks:
+                    risks.append(cleaned)
+            elif any(kw in line_lower for kw in opportunity_keywords):
+                if cleaned not in opportunities:
+                    opportunities.append(cleaned)
+        
+        return risks[:5], opportunities[:5]
     
     def _emit_empty_output_escalation_decision(
         self,

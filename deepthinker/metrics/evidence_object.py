@@ -25,6 +25,7 @@ class EvidenceType(str, Enum):
     DOCUMENT_EXTRACT = "document_extract"
     USER_INPUT = "user_input"
     MODEL_OUTPUT = "model_output"
+    ARXIV = "arxiv"
     UNKNOWN = "unknown"
 
 
@@ -202,6 +203,68 @@ class EvidenceObject:
                 "status_code": status_code,
                 "response_type": type(response_data).__name__,
             },
+        )
+    
+    @classmethod
+    def from_arxiv(
+        cls,
+        arxiv_id: str,
+        title: str,
+        authors: List[str],
+        abstract: str,
+        content_type: str = "metadata",
+        local_path: Optional[str] = None,
+        sha256: Optional[str] = None,
+        request_url: str = "",
+    ) -> "EvidenceObject":
+        """
+        Create an evidence object from arXiv paper.
+        
+        Args:
+            arxiv_id: arXiv paper ID
+            title: Paper title
+            authors: List of author names
+            abstract: Paper abstract
+            content_type: Type of content ("metadata", "pdf", "source")
+            local_path: Local file path if downloaded
+            sha256: SHA256 hash if downloaded
+            request_url: URL used to retrieve the data
+            
+        Returns:
+            EvidenceObject for the arXiv paper
+        """
+        # Build content excerpt from title and authors
+        authors_str = ", ".join(authors[:3])
+        if len(authors) > 3:
+            authors_str += f" et al. ({len(authors)} authors)"
+        
+        excerpt = f"[{arxiv_id}] {title}\nAuthors: {authors_str}"
+        if abstract:
+            excerpt += f"\nAbstract: {abstract[:300]}..."
+        
+        # Confidence based on content type
+        # PDF/source downloads are more reliable as evidence
+        confidence = 0.9 if content_type in ("pdf", "source") else 0.85
+        
+        metadata = {
+            "arxiv_id": arxiv_id,
+            "content_type": content_type,
+            "authors": authors,
+            "request_url": request_url,
+        }
+        
+        if local_path:
+            metadata["local_path"] = local_path
+        if sha256:
+            metadata["sha256"] = sha256
+        
+        return cls(
+            evidence_type=EvidenceType.ARXIV,
+            source=f"https://arxiv.org/abs/{arxiv_id}",
+            content_excerpt=excerpt[:500],
+            raw_ref=local_path or f"https://arxiv.org/abs/{arxiv_id}",
+            confidence=confidence,
+            metadata=metadata,
         )
     
     def to_dict(self) -> Dict[str, Any]:

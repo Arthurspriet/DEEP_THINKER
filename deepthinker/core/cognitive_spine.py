@@ -47,12 +47,13 @@ class OutputLimits:
     Single source of truth for output length limits.
     
     Phase 5.2: Centralized constants to replace magic number truncations.
+    Increased limits to prevent mid-stream truncation during complex analysis phases.
     """
-    MAX_ARTIFACT_CHARS = 10000  # Increased from 2000
-    MAX_CONTEXT_CHARS = 8000    # Increased from 4000
-    MAX_HISTORY_CHARS = 10000   # Increased from 5000
+    MAX_ARTIFACT_CHARS = 15000  # Increased from 10000 to prevent analysis truncation
+    MAX_CONTEXT_CHARS = 12000   # Increased from 8000 for richer inter-council context
+    MAX_HISTORY_CHARS = 15000   # Increased from 10000 for longer missions
     MAX_INTERNAL_REASONING = 50000  # Keep high for internal use
-    MAX_USER_FACING_CHARS = 10000  # For final artifacts
+    MAX_USER_FACING_CHARS = 15000  # Increased from 10000 for final artifacts
 
 
 @dataclass
