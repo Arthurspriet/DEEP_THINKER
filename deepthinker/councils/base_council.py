@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 import logging
 
 from ..models.model_pool import ModelPool, ModelOutput
+from ..prompts import OutputContext, get_output_instructions
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +162,7 @@ class BaseCouncil(ABC):
         cognitive_spine: Optional["CognitiveSpine"] = None,
         council_definition: Optional["CouncilDefinition"] = None,
         decision_emitter: Optional["DecisionEmitter"] = None,
+        output_context: OutputContext = OutputContext.INTERNAL,
     ):
         """
         Initialize the council.
@@ -174,9 +176,14 @@ class BaseCouncil(ABC):
             cognitive_spine: Optional CognitiveSpine for validation and resource tracking
             council_definition: Optional CouncilDefinition for dynamic configuration
             decision_emitter: Optional DecisionEmitter for accountability logging
+            output_context: Context for output formatting (INTERNAL for machine parsing,
+                           HUMAN for user-facing output). Defaults to INTERNAL.
         """
         # Store council definition for dynamic configuration
         self.council_definition = council_definition
+        
+        # Store output context for formatting instructions
+        self._output_context: OutputContext = output_context
         
         # Apply council definition if provided
         if council_definition is not None:
@@ -788,17 +795,48 @@ PROCEED WITH THE ASSIGNED ANALYSIS:
     
     def get_system_prompt(self) -> str:
         """
-        Get the system prompt for this council.
+        Get the system prompt for this council with output instructions.
         
         Override in subclasses to provide council-specific system prompts.
+        The base implementation appends context-aware output instructions
+        (INTERNAL for machine parsing, HUMAN for user-facing output).
         
         Returns:
-            System prompt string (never None)
+            System prompt string with output instructions (never None)
         """
         if self._system_prompt is None:
             # Defensive fallback - should not happen but prevents UnboundLocalError
+            base_prompt = self._get_default_base_system_prompt()
+        else:
+            base_prompt = self._system_prompt
+        
+        # Append context-aware output instructions
+        output_instructions = get_output_instructions(self._output_context)
+        return f"{base_prompt}\n\n{output_instructions}"
+    
+    def get_system_prompt_raw(self) -> str:
+        """
+        Get the raw system prompt without output instructions.
+        
+        Use this when you need the base prompt without formatting instructions,
+        for example when building custom prompts.
+        
+        Returns:
+            Raw system prompt string (never None)
+        """
+        if self._system_prompt is None:
             return self._get_default_base_system_prompt()
         return self._system_prompt
+    
+    def set_output_context(self, context: OutputContext) -> None:
+        """
+        Set the output context for this council.
+        
+        Args:
+            context: OutputContext.INTERNAL for machine parsing,
+                     OutputContext.HUMAN for user-facing output
+        """
+        self._output_context = context
     
     def get_system_prompt_with_persona(self, model_name: str) -> Optional[str]:
         """

@@ -41,7 +41,7 @@ Method:
 8. Verify no fabricated evaluation criteria or invented problems.
 9. Use internal reasoning but output only the final structured evaluation with confidence markers.
 
-Output (STRICT JSON):
+Expected JSON Schema:
 {
   "overall_score": 0-10,
   "issues": [...],

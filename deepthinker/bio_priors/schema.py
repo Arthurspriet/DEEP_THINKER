@@ -248,3 +248,5 @@ class BioPattern:
         # Base score for any pattern
         return 0.1
 
+
+

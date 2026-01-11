@@ -119,3 +119,5 @@ OLLAMA_MODEL=deepseek-r1:8b  # Default model
 ```
 
 
+
+

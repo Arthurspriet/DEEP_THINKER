@@ -45,7 +45,7 @@ Method:
 5. Mark all scenarios with realism indicators: "verified", "likely", "theoretical", "unknown".
 6. Use internal reasoning but output only structured results with truthfulness markers.
 
-Output (STRICT JSON):
+Expected JSON Schema:
 {
   "scenarios": [
     {"type": "best", "description": "...", "realism": "..."},

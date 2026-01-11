@@ -3392,6 +3392,231 @@ class VerboseLogger:
             
             print(f"{'=' * 55}")
 
+    # =========================================================================
+    # ENHANCED UX PANELS - RETRIEVAL, CONSENSUS, STEP PROGRESS
+    # =========================================================================
+
+    def log_retrieval_panel(
+        self,
+        query: str,
+        source: str,
+        results: List[Tuple[Dict[str, Any], float]],
+        reranked: bool = False
+    ) -> None:
+        """
+        Log RAG retrieval operation with query, source, and results.
+        
+        Args:
+            query: The search query used
+            source: Source of retrieval ("mission_rag", "global_rag", "general_knowledge")
+            results: List of (document_dict, score) tuples
+            reranked: Whether results were reranked
+        """
+        if not self.enabled:
+            return
+        
+        # Truncate query for display
+        query_display = query[:50] + "..." if len(query) > 50 else query
+        result_count = len(results)
+        rerank_str = "yes" if reranked else "no"
+        
+        if RICH_AVAILABLE and self._console:
+            content = Text()
+            content.append("📚 Retrieval: ", style="bold")
+            content.append(f'"{query_display}"\n', style="white")
+            content.append(f"   Source: ", style="dim")
+            content.append(f"{source}", style="cyan")
+            content.append(f" │ {result_count} results │ reranked: {rerank_str}\n", style="dim")
+            content.append("   " + "─" * 45 + "\n", style="dim")
+            
+            for doc, score in results[:5]:  # Show top 5
+                # Extract meaningful text from document
+                text = doc.get("text", doc.get("summary", doc.get("content", "")))[:60]
+                if len(doc.get("text", doc.get("summary", doc.get("content", "")))) > 60:
+                    text += "..."
+                
+                # Show source info if available
+                doc_source = doc.get("source_doc", doc.get("artifact_type", doc.get("phase", "")))
+                if doc_source:
+                    text = f"{doc_source} - {text}"
+                
+                content.append(f"   {score:.2f}  ", style="white")
+                content.append(f"{text}\n", style="dim")
+            
+            if result_count > 5:
+                content.append(f"   ... and {result_count - 5} more\n", style="dim")
+            
+            self._console.print(content)
+        else:
+            print(f'📚 Retrieval: "{query_display}"')
+            print(f"   Source: {source} │ {result_count} results │ reranked: {rerank_str}")
+            print("   " + "─" * 45)
+            
+            for doc, score in results[:5]:
+                text = doc.get("text", doc.get("summary", doc.get("content", "")))[:60]
+                if len(doc.get("text", doc.get("summary", doc.get("content", "")))) > 60:
+                    text += "..."
+                doc_source = doc.get("source_doc", doc.get("artifact_type", doc.get("phase", "")))
+                if doc_source:
+                    text = f"{doc_source} - {text}"
+                print(f"   {score:.2f}  {text}")
+            
+            if result_count > 5:
+                print(f"   ... and {result_count - 5} more")
+
+    def log_consensus_panel(
+        self,
+        council_name: str,
+        winner: Optional[str] = None,
+        winner_model: Optional[str] = None,
+        confidence: float = 0.0,
+        vote_counts: Optional[Dict[str, int]] = None,
+        cluster_assignments: Optional[Dict[str, int]] = None,
+        skipped: bool = False,
+        skip_reason: str = ""
+    ) -> None:
+        """
+        Log consensus/voting result or skip decision.
+        
+        Args:
+            council_name: Name of the council
+            winner: Winning output text (truncated for display)
+            winner_model: Model that produced winning output
+            confidence: Confidence in consensus
+            vote_counts: Dict mapping cluster_id -> count
+            cluster_assignments: Dict mapping model_name -> cluster_id
+            skipped: Whether consensus was skipped
+            skip_reason: Reason for skipping (if skipped)
+        """
+        if not self.enabled:
+            return
+        
+        if RICH_AVAILABLE and self._console:
+            content = Text()
+            content.append("⚖️  Consensus: ", style="bold")
+            content.append(f"{council_name}\n", style="cyan")
+            
+            if skipped:
+                content.append(f"   Skipped: ", style="dim")
+                content.append(f"{skip_reason}\n", style="yellow")
+            else:
+                content.append(f"   Winner: ", style="dim")
+                content.append(f"{winner_model or 'unknown'}", style="cyan")
+                content.append(f" │ confidence: {confidence:.2f}\n", style="dim")
+                
+                if cluster_assignments and vote_counts:
+                    content.append("   " + "─" * 45 + "\n", style="dim")
+                    
+                    # Group models by cluster
+                    clusters: Dict[int, List[str]] = {}
+                    for model, cluster_id in cluster_assignments.items():
+                        if cluster_id not in clusters:
+                            clusters[cluster_id] = []
+                        clusters[cluster_id].append(model)
+                    
+                    # Find winning cluster
+                    winning_cluster = None
+                    if winner_model and winner_model in cluster_assignments:
+                        winning_cluster = cluster_assignments[winner_model]
+                    
+                    for cluster_id, models in sorted(clusters.items()):
+                        count = len(models)
+                        models_str = ", ".join(models)
+                        is_winner = cluster_id == winning_cluster
+                        
+                        content.append(f"   Cluster {cluster_id + 1} ({count} model{'s' if count > 1 else ''}): ", style="dim")
+                        content.append(f"{models_str}", style="cyan" if is_winner else "dim")
+                        if is_winner:
+                            content.append("  ← winner", style="green")
+                        content.append("\n")
+            
+            self._console.print(content)
+        else:
+            print(f"⚖️  Consensus: {council_name}")
+            
+            if skipped:
+                print(f"   Skipped: {skip_reason}")
+            else:
+                print(f"   Winner: {winner_model or 'unknown'} │ confidence: {confidence:.2f}")
+                
+                if cluster_assignments and vote_counts:
+                    print("   " + "─" * 45)
+                    
+                    clusters: Dict[int, List[str]] = {}
+                    for model, cluster_id in cluster_assignments.items():
+                        if cluster_id not in clusters:
+                            clusters[cluster_id] = []
+                        clusters[cluster_id].append(model)
+                    
+                    winning_cluster = None
+                    if winner_model and winner_model in cluster_assignments:
+                        winning_cluster = cluster_assignments[winner_model]
+                    
+                    for cluster_id, models in sorted(clusters.items()):
+                        count = len(models)
+                        models_str = ", ".join(models)
+                        is_winner = cluster_id == winning_cluster
+                        suffix = "  ← winner" if is_winner else ""
+                        print(f"   Cluster {cluster_id + 1} ({count} model{'s' if count > 1 else ''}): {models_str}{suffix}")
+
+    def log_step_progress(
+        self,
+        step_idx: int,
+        total_steps: int,
+        step_name: str,
+        status: str,
+        model: str,
+        duration_s: float = 0.0
+    ) -> None:
+        """
+        Log step progress within a phase (inline, compact format).
+        
+        Args:
+            step_idx: Current step index (1-based)
+            total_steps: Total number of steps
+            step_name: Name of the step
+            status: "running", "completed", or "failed"
+            model: Model being used
+            duration_s: Duration in seconds (for completed/failed)
+        """
+        if not self.enabled:
+            return
+        
+        # Truncate step name if too long
+        step_display = step_name[:25] + "..." if len(step_name) > 25 else step_name
+        model_display = model.split("/")[-1] if "/" in model else model  # Remove registry prefix
+        
+        if status == "running":
+            status_str = "running..."
+            status_style = "yellow"
+        elif status == "completed":
+            status_str = f"done ({duration_s:.1f}s) ✓"
+            status_style = "green"
+        else:  # failed
+            status_str = f"failed ({duration_s:.1f}s) ✗"
+            status_style = "red"
+        
+        if RICH_AVAILABLE and self._console:
+            content = Text()
+            content.append(f"  [{step_idx}/{total_steps}] ", style="dim")
+            content.append(f"{step_display}", style="white")
+            content.append(f" ─ ", style="dim")
+            content.append(f"{model_display}", style="cyan")
+            content.append(f" ─ ", style="dim")
+            content.append(f"{status_str}", style=status_style)
+            
+            # Use carriage return for "running" to allow overwrite, newline for final states
+            if status == "running":
+                self._console.print(content, end="\r")
+            else:
+                self._console.print(content)
+        else:
+            line = f"  [{step_idx}/{total_steps}] {step_display} ─ {model_display} ─ {status_str}"
+            if status == "running":
+                print(line, end="\r", flush=True)
+            else:
+                print(line)
+
 
 # Global verbose logger instance
 verbose_logger = VerboseLogger()

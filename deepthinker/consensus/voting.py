@@ -9,6 +9,14 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 import numpy as np
 
+# Verbose logging integration
+try:
+    from deepthinker.cli import verbose_logger
+    VERBOSE_LOGGER_AVAILABLE = True
+except ImportError:
+    VERBOSE_LOGGER_AVAILABLE = False
+    verbose_logger = None
+
 
 @dataclass
 class VoteResult:
@@ -32,7 +40,7 @@ class MajorityVoteConsensus:
     def __init__(
         self,
         similarity_threshold: float = 0.8,
-        embedding_model: str = "qwen3-embedding:4b",
+        embedding_model: str = "snowflake-arctic-embed:latest",
         ollama_base_url: str = "http://localhost:11434"
     ):
         """
@@ -72,12 +80,21 @@ class MajorityVoteConsensus:
         return embedding
     
     def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
-        """Compute cosine similarity between two vectors."""
+        """Compute cosine similarity between two vectors.
+        
+        Handles dimension mismatches gracefully (can occur when embedding
+        fallback models with different dimensions are used).
+        """
         if not vec1 or not vec2:
             return 0.0
         
         a = np.array(vec1)
         b = np.array(vec2)
+        
+        # Handle dimension mismatch (fallback embedding models have different dims)
+        if a.shape[0] != b.shape[0]:
+            # Return low similarity to put them in different clusters
+            return 0.0
         
         norm_a = np.linalg.norm(a)
         norm_b = np.linalg.norm(b)
@@ -142,7 +159,8 @@ class MajorityVoteConsensus:
     
     def apply(
         self,
-        outputs: Dict[str, Any]
+        outputs: Dict[str, Any],
+        council_name: str = "Unknown"
     ) -> VoteResult:
         """
         Apply majority vote consensus to model outputs.
@@ -150,6 +168,7 @@ class MajorityVoteConsensus:
         Args:
             outputs: Dictionary mapping model_name -> output
                      (can be ModelOutput objects or strings)
+            council_name: Name of the council for logging
         
         Returns:
             VoteResult with winning output and voting details
@@ -200,13 +219,27 @@ class MajorityVoteConsensus:
         winning_votes = vote_counts[winning_cluster]
         confidence = winning_votes / total_votes if total_votes > 0 else 0.0
         
-        return VoteResult(
+        result = VoteResult(
             winner=winner_output,
             winner_model=winner_model,
             vote_counts=vote_counts,
             cluster_assignments=cluster_assignments,
             confidence=confidence
         )
+        
+        # Log consensus result
+        if VERBOSE_LOGGER_AVAILABLE and verbose_logger and verbose_logger.enabled:
+            verbose_logger.log_consensus_panel(
+                council_name=council_name,
+                winner=winner_output[:100] if winner_output else None,
+                winner_model=winner_model,
+                confidence=confidence,
+                vote_counts=vote_counts,
+                cluster_assignments=cluster_assignments,
+                skipped=False
+            )
+        
+        return result
     
     def clear_cache(self) -> None:
         """Clear embedding cache."""

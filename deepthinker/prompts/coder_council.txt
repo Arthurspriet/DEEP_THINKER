@@ -42,7 +42,7 @@ Method:
 8. Verify no fabricated code, APIs, or library functions have been introduced.
 9. Use deep internal reasoning but output only structured results with truthfulness markers.
 
-Output (STRICT JSON):
+Expected JSON Schema:
 {
   "architecture": "...",
   "code": "...",

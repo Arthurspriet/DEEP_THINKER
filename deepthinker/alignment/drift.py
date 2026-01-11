@@ -164,6 +164,10 @@ class EmbeddingDriftDetector:
         if vec1.size == 0 or vec2.size == 0:
             return 0.0
         
+        # Handle dimension mismatch (can occur with mixed embedding models)
+        if vec1.shape[0] != vec2.shape[0]:
+            return 0.0
+        
         return float(np.dot(vec1, vec2))
     
     def _euclidean_distance(

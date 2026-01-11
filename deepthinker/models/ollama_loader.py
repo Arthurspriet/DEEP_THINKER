@@ -431,7 +431,7 @@ class OllamaLoader:
     
     def create_embedding_llm(
         self,
-        model_name: str = "qwen3-embedding:4b"
+        model_name: str = "snowflake-arctic-embed:latest"
     ):
         """
         Create embedding model for semantic distance consensus.
@@ -451,7 +451,7 @@ class OllamaLoader:
     def get_embeddings(
         self,
         text: str,
-        model_name: str = "qwen3-embedding:4b"
+        model_name: str = "snowflake-arctic-embed:latest"
     ) -> List[float]:
         """
         Generate embeddings for text using Ollama embedding model.
@@ -489,7 +489,7 @@ class OllamaLoader:
     def get_batch_embeddings(
         self,
         texts: List[str],
-        model_name: str = "qwen3-embedding:4b"
+        model_name: str = "snowflake-arctic-embed:latest"
     ) -> List[List[float]]:
         """
         Generate embeddings for multiple texts.

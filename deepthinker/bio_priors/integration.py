@@ -209,3 +209,5 @@ def get_v1_scope_info() -> Dict[str, Any]:
         "note": "Only depth_budget_delta is applied in v1. Other signals require dedicated injection points.",
     }
 
+
+

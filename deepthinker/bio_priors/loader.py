@@ -227,3 +227,5 @@ def get_patterns_summary(
         for p in patterns
     ]
 
+
+

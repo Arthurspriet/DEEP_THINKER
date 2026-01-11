@@ -85,7 +85,7 @@ class MemoryManager:
         time_budget_minutes: Optional[float] = None,
         base_dir: Optional[Path] = None,
         embedding_fn: Optional[Callable[[str], List[float]]] = None,
-        embedding_model: str = "qwen3-embedding:4b",
+        embedding_model: str = "snowflake-arctic-embed:latest",
         ollama_base_url: str = "http://localhost:11434",
         auto_load: bool = True,
     ):

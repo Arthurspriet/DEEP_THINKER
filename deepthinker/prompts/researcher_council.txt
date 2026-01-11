@@ -46,7 +46,7 @@ Method:
 8. Mark all information with evidence status: "verified", "inferred", "assumed", or "unknown".
 9. Use internal reasoning but output only structured results with truthfulness markers.
 
-Output (STRICT JSON):
+Expected JSON Schema:
 {
   "key_facts": [...],
   "contradictions": [...],

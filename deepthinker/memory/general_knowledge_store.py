@@ -21,6 +21,14 @@ from .rag_store import EmbeddingProvider, cosine_similarity
 
 logger = logging.getLogger(__name__)
 
+# Verbose logging integration
+try:
+    from deepthinker.cli import verbose_logger
+    VERBOSE_LOGGER_AVAILABLE = True
+except ImportError:
+    VERBOSE_LOGGER_AVAILABLE = False
+    verbose_logger = None
+
 
 # Category groupings for CIA Factbook data
 CIA_CATEGORIES = {
@@ -140,7 +148,7 @@ class GeneralKnowledgeStore:
         self,
         base_dir: Optional[Path] = None,
         embedding_fn: Optional[Callable[[str], List[float]]] = None,
-        embedding_model: str = "qwen3-embedding:4b",
+        embedding_model: str = "snowflake-arctic-embed:latest",
         ollama_base_url: str = "http://localhost:11434",
     ):
         """
@@ -350,7 +358,18 @@ class GeneralKnowledgeStore:
         # Sort by score descending
         results.sort(key=lambda x: x[1], reverse=True)
         
-        return results[:top_k]
+        final_results = results[:top_k]
+        
+        # Log retrieval operation
+        if VERBOSE_LOGGER_AVAILABLE and verbose_logger and verbose_logger.enabled and final_results:
+            verbose_logger.log_retrieval_panel(
+                query=query,
+                source="general_knowledge",
+                results=final_results,
+                reranked=False
+            )
+        
+        return final_results
     
     def search_owid(
         self,

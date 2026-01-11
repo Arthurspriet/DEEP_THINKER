@@ -352,7 +352,7 @@ MODEL_TIERS: Dict[str, List[str]] = {
     "large": ["gemma3:27b", "gpt-oss:latest", "cogito:14b", "llava:13b"],
     "medium": ["gemma3:12b", "deepseek-r1:8b", "mistral:instruct", "devstral:latest"],
     "small": ["llama3.2:3b", "gemma3:4b", "qwen3:4b", "llama3.2:1b"],
-    "embedding": ["qwen3-embedding:4b", "snowflake-arctic-embed:latest", "embeddinggemma:latest"],
+    "embedding": ["snowflake-arctic-embed:latest", "qwen3-embedding:4b", "embeddinggemma:latest"],
 }
 
 # Phase to preferred tier mapping
@@ -771,7 +771,7 @@ class ModelRegistry:
         except Exception as e:
             logger.warning(f"Failed to check model availability: {e}")
     
-    def get_embedding_model(self, preference: str = "qwen3-embedding:4b") -> str:
+    def get_embedding_model(self, preference: str = "snowflake-arctic-embed:latest") -> str:
         """Get the best available embedding model."""
         if preference in self._models and self._models[preference].is_available:
             return preference
@@ -781,7 +781,7 @@ class ModelRegistry:
             if self._models.get(name, ModelInfo(name=name, tier=ModelTier.EMBEDDING)).is_available:
                 return name
         
-        return "qwen3-embedding:4b"  # Default
+        return "snowflake-arctic-embed:latest"  # Default
     
     def get_pool_config(
         self,

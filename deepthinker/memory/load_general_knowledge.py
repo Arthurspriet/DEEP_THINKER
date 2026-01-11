@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 def load_cia_facts(
     kb_dir: Path,
-    embedding_model: str = "qwen3-embedding:4b",
+    embedding_model: str = "snowflake-arctic-embed:latest",
     ollama_url: str = "http://localhost:11434",
 ) -> int:
     """
@@ -149,8 +149,8 @@ def main():
     )
     parser.add_argument(
         "--embedding-model",
-        default="qwen3-embedding:4b",
-        help="Ollama embedding model (default: qwen3-embedding:4b)",
+        default="snowflake-arctic-embed:latest",
+        help="Ollama embedding model (default: snowflake-arctic-embed:latest)",
     )
     parser.add_argument(
         "--ollama-url",

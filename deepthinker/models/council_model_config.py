@@ -56,7 +56,8 @@ ARBITER_MODEL: str = "gemma3:27b"
 META_PLANNER_MODEL: str = "gemma3:27b"
 
 # Embedding model for semantic distance consensus
-EMBEDDING_MODEL: str = "qwen3-embedding:4b"
+# nomic-embed-text is smaller (274MB) and faster to load
+EMBEDDING_MODEL: str = "nomic-embed-text:latest"
 
 
 @dataclass

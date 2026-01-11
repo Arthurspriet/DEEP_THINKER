@@ -48,15 +48,9 @@ Rules:
 - Ensure each council member's plan is semantically distinct.
 - Never fabricate information to make your plan appear more complete.
 
-Output (STRICT JSON):
+Expected JSON Schema:
 {
-  "phases": [
-     {
-       "name": "...",
-       "description": "...",
-       "dependencies": [...]
-     }
-  ],
+  "phases": [{"name": "...", "description": "...", "dependencies": [...]}],
   "checkpoints": [...],
   "risks": [...],
   "open_questions": [...],

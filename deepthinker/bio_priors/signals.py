@@ -236,3 +236,5 @@ def _clamp_int(value: int, min_val: int, max_val: int) -> int:
     """Clamp an int to bounds."""
     return max(min_val, min(max_val, int(value)))
 
+
+

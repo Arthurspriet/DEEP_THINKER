@@ -24,6 +24,14 @@ from .schemas import EvidenceSchema
 
 logger = logging.getLogger(__name__)
 
+# Verbose logging integration
+try:
+    from deepthinker.cli import verbose_logger
+    VERBOSE_LOGGER_AVAILABLE = True
+except ImportError:
+    VERBOSE_LOGGER_AVAILABLE = False
+    verbose_logger = None
+
 
 def _apply_rerank(
     query: str,
@@ -83,7 +91,7 @@ class EmbeddingProvider:
     
     def __init__(
         self,
-        embedding_model: str = "qwen3-embedding:4b",
+        embedding_model: str = "snowflake-arctic-embed:latest",
         ollama_base_url: str = "http://localhost:11434",
         cache_size: int = 500,
     ):
@@ -177,7 +185,7 @@ class MissionRAGStore:
         mission_id: str,
         base_dir: Optional[Path] = None,
         embedding_fn: Optional[Callable[[str], List[float]]] = None,
-        embedding_model: str = "qwen3-embedding:4b",
+        embedding_model: str = "snowflake-arctic-embed:latest",
         ollama_base_url: str = "http://localhost:11434",
     ):
         """
@@ -365,10 +373,21 @@ class MissionRAGStore:
         results = results[:rerank_topn]
         
         # Apply optional reranking
+        reranked = False
         if enable_rerank and results:
             results = _apply_rerank(query, results, top_k, mission_id=self.mission_id)
+            reranked = True
         else:
             results = results[:top_k]
+        
+        # Log retrieval operation
+        if VERBOSE_LOGGER_AVAILABLE and verbose_logger and verbose_logger.enabled and results:
+            verbose_logger.log_retrieval_panel(
+                query=query,
+                source="mission_rag",
+                results=results,
+                reranked=reranked
+            )
         
         return results
     
@@ -479,7 +498,7 @@ class GlobalRAGStore:
         self,
         base_dir: Optional[Path] = None,
         embedding_fn: Optional[Callable[[str], List[float]]] = None,
-        embedding_model: str = "qwen3-embedding:4b",
+        embedding_model: str = "snowflake-arctic-embed:latest",
         ollama_base_url: str = "http://localhost:11434",
     ):
         """
@@ -716,10 +735,21 @@ class GlobalRAGStore:
         results = results[:rerank_topn]
         
         # Apply optional reranking
+        reranked = False
         if enable_rerank and results:
             results = _apply_rerank(query, results, top_k, mission_id="global")
+            reranked = True
         else:
             results = results[:top_k]
+        
+        # Log retrieval operation
+        if VERBOSE_LOGGER_AVAILABLE and verbose_logger and verbose_logger.enabled and results:
+            verbose_logger.log_retrieval_panel(
+                query=query,
+                source="global_rag",
+                results=results,
+                reranked=reranked
+            )
         
         return results
     

@@ -16,6 +16,14 @@ import hashlib
 
 logger = logging.getLogger(__name__)
 
+# Verbose logging integration
+try:
+    from deepthinker.cli import verbose_logger
+    VERBOSE_LOGGER_AVAILABLE = True
+except ImportError:
+    VERBOSE_LOGGER_AVAILABLE = False
+    verbose_logger = None
+
 
 @dataclass
 class ConsensusPolicyResult:
@@ -110,6 +118,14 @@ class ConsensusPolicyEngine:
                 0.0
             )
             
+            # Log consensus skip
+            if VERBOSE_LOGGER_AVAILABLE and verbose_logger and verbose_logger.enabled:
+                verbose_logger.log_consensus_panel(
+                    council_name=council_name,
+                    skipped=True,
+                    skip_reason=f"insufficient models ({len(successful)} < {self.min_models})"
+                )
+            
             return ConsensusPolicyResult(
                 should_run=False,
                 reason=f"insufficient_models ({len(successful)} < {self.min_models})",
@@ -129,6 +145,14 @@ class ConsensusPolicyEngine:
                 f"outputs_identical (hash_agreement={hash_agreement:.2f})",
                 hash_agreement
             )
+            
+            # Log consensus skip
+            if VERBOSE_LOGGER_AVAILABLE and verbose_logger and verbose_logger.enabled:
+                verbose_logger.log_consensus_panel(
+                    council_name=council_name,
+                    skipped=True,
+                    skip_reason=f"outputs identical (similarity: {hash_agreement:.2f})"
+                )
             
             return ConsensusPolicyResult(
                 should_run=False,
@@ -151,6 +175,14 @@ class ConsensusPolicyEngine:
                     f"high_agreement ({quick_agreement:.2f})",
                     quick_agreement
                 )
+                
+                # Log consensus skip
+                if VERBOSE_LOGGER_AVAILABLE and verbose_logger and verbose_logger.enabled:
+                    verbose_logger.log_consensus_panel(
+                        council_name=council_name,
+                        skipped=True,
+                        skip_reason=f"high agreement (similarity: {quick_agreement:.2f})"
+                    )
                 
                 return ConsensusPolicyResult(
                     should_run=False,

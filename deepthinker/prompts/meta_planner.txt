@@ -50,7 +50,7 @@ Method:
 8. Produce a timeline aligned with the mission's time budget, marking uncertainties.
 9. Use internal reasoning but output only the final structured result with truthfulness markers.
 
-Output (STRICT JSON):
+Expected JSON Schema:
 {
   "phases": [...],
   "success_criteria": [...],

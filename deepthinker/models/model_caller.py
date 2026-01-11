@@ -277,11 +277,12 @@ async def call_model_async(
 
 
 # Fallback chain for embedding models - try alternatives if primary fails
+# nomic-embed-text is prioritized first (smallest at 274MB, fastest to load)
 EMBEDDING_FALLBACK_CHAIN = [
-    "qwen3-embedding:4b",
-    "snowflake-arctic-embed:latest", 
     "nomic-embed-text:latest",
-    "mxbai-embed-large:latest",
+    "all-minilm:33m",
+    "snowflake-arctic-embed:latest",
+    "qwen3-embedding:4b", 
 ]
 
 # Track embedding availability to avoid repeated failures
@@ -382,10 +383,9 @@ def _try_single_embedding_model(
             
         except httpx.HTTPStatusError as e:
             logger.warning(f"[ModelCaller] HTTP error getting embeddings from {model} (attempt {attempt + 1}): {e}")
-            # Don't retry on 500 errors - likely model issue, try fallback instead
+            # Retry on 500 errors - often caused by model loading contention
             if e.response.status_code == 500:
-                logger.warning(f"[ModelCaller] Server error 500 from {model} - skipping to fallback model")
-                return None
+                logger.warning(f"[ModelCaller] Server error 500 from {model} - will retry (model may be loading)")
             
         except httpx.RequestError as e:
             logger.warning(f"[ModelCaller] Request error getting embeddings from {model} (attempt {attempt + 1}): {e}")
@@ -404,8 +404,8 @@ def _try_single_embedding_model(
 
 def call_embeddings(
     text: str,
-    model: str = "qwen3-embedding:4b",
-    timeout: float = 60.0,
+    model: str = "snowflake-arctic-embed:latest",
+    timeout: float = 120.0,
     max_retries: int = 2,
     base_url: str = DEFAULT_OLLAMA_URL,
 ) -> List[float]:
@@ -507,10 +507,9 @@ async def _try_single_embedding_model_async(
             
         except httpx.HTTPStatusError as e:
             logger.warning(f"[ModelCaller] Async HTTP error getting embeddings from {model} (attempt {attempt + 1}): {e}")
-            # Don't retry on 500 errors - try fallback instead
+            # Retry on 500 errors - often caused by model loading contention
             if e.response.status_code == 500:
-                logger.warning(f"[ModelCaller] Server error 500 from {model} - skipping to fallback model")
-                return None
+                logger.warning(f"[ModelCaller] Server error 500 from {model} - will retry (model may be loading)")
             
         except httpx.RequestError as e:
             logger.warning(f"[ModelCaller] Async request error getting embeddings from {model} (attempt {attempt + 1}): {e}")
@@ -528,8 +527,8 @@ async def _try_single_embedding_model_async(
 
 async def call_embeddings_async(
     text: str,
-    model: str = "qwen3-embedding:4b",
-    timeout: float = 60.0,
+    model: str = "snowflake-arctic-embed:latest",
+    timeout: float = 120.0,
     max_retries: int = 2,
     base_url: str = DEFAULT_OLLAMA_URL,
 ) -> List[float]:

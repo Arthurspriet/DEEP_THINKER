@@ -47,7 +47,7 @@ class SemanticDistanceConsensus:
     
     def __init__(
         self,
-        embedding_model: str = "qwen3-embedding:4b",
+        embedding_model: str = "snowflake-arctic-embed:latest",
         outlier_threshold: float = 0.6,
         ollama_base_url: str = "http://localhost:11434"
     ):
@@ -93,12 +93,24 @@ class SemanticDistanceConsensus:
         return embedding
     
     def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
-        """Compute cosine similarity between two vectors."""
+        """Compute cosine similarity between two vectors.
+        
+        Handles dimension mismatches gracefully (can occur when embedding
+        fallback models with different dimensions are used).
+        """
         if not vec1 or not vec2:
             return 0.0
         
         a = np.array(vec1)
         b = np.array(vec2)
+        
+        # Handle dimension mismatch (fallback embedding models have different dims)
+        if a.shape[0] != b.shape[0]:
+            logger.debug(
+                f"[SemanticDistance] Dimension mismatch: {a.shape[0]} vs {b.shape[0]}, "
+                f"returning neutral similarity 0.5"
+            )
+            return 0.5  # Neutral similarity when dimensions don't match
         
         norm_a = np.linalg.norm(a)
         norm_b = np.linalg.norm(b)

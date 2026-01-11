@@ -373,6 +373,6 @@ tier_groups:
     - llama3.2:1b
     
   embedding:
-    - qwen3-embedding:4b
     - snowflake-arctic-embed:latest
+    - qwen3-embedding:4b
     - embeddinggemma:latest

@@ -39,7 +39,7 @@ Method:
 6. Verify no fabricated information has been introduced.
 7. Produce a single authoritative answer with appropriate uncertainty markers.
 
-Output (STRICT JSON):
+Expected JSON Schema:
 {
   "final_answer": "...",
   "merged_plan": {...},

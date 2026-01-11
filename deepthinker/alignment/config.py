@@ -52,7 +52,7 @@ class AlignmentConfig:
     enabled: bool = False
     
     # Model configuration
-    embedding_model: str = "qwen3-embedding:4b"
+    embedding_model: str = "snowflake-arctic-embed:latest"
     evaluator_model: str = "llama3.2:3b"
     ollama_base_url: str = "http://localhost:11434"
     
@@ -153,7 +153,7 @@ class AlignmentConfig:
         
         return cls(
             enabled=get_bool("ALIGNMENT_ENABLED", False),
-            embedding_model=os.environ.get("ALIGNMENT_EMBEDDING_MODEL", "qwen3-embedding:4b"),
+            embedding_model=os.environ.get("ALIGNMENT_EMBEDDING_MODEL", "snowflake-arctic-embed:latest"),
             evaluator_model=os.environ.get("ALIGNMENT_EVALUATOR_MODEL", "llama3.2:3b"),
             ollama_base_url=os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"),
             min_similarity_soft=get_float("ALIGNMENT_MIN_SIMILARITY", 0.4),

@@ -1648,7 +1648,7 @@ class MissionOrchestrator:
                 mission_type=self._infer_mission_type(state.objective),
                 time_budget_minutes=state.constraints.time_budget_minutes,
                 base_dir=base_dir,
-                embedding_model="qwen3-embedding:4b",
+                embedding_model="snowflake-arctic-embed:latest",
                 ollama_base_url=self.planner.model_pool.base_url if hasattr(self.planner.model_pool, 'base_url') else "http://localhost:11434",
             )
             
@@ -1739,7 +1739,7 @@ class MissionOrchestrator:
                 mission_type=self._infer_mission_type(objective),
                 time_budget_minutes=constraints.time_budget_minutes,
                 base_dir=base_dir,
-                embedding_model="qwen3-embedding:4b",
+                embedding_model="snowflake-arctic-embed:latest",
                 ollama_base_url=self.planner.model_pool.base_url if hasattr(self.planner.model_pool, 'base_url') else "http://localhost:11434",
             )
             
@@ -6642,8 +6642,31 @@ Focus on actionable insights and testable predictions."""
             
             state.log(f"Executing step: {step.name} (type: {step.step_type})")
             
+            # Log step progress - running
+            total_steps = len([s for s in phase.steps if s.needs_execution()])
+            current_step_idx = step_index + 1
+            if VERBOSE_LOGGER_AVAILABLE and verbose_logger and verbose_logger.enabled:
+                verbose_logger.log_step_progress(
+                    step_idx=current_step_idx,
+                    total_steps=total_steps,
+                    step_name=step.name,
+                    status="running",
+                    model=step.model or "default"
+                )
+            
             # Execute the step
             result = self.step_executor.execute_step(step, ctx)
+            
+            # Log step progress - completed/failed
+            if VERBOSE_LOGGER_AVAILABLE and verbose_logger and verbose_logger.enabled:
+                verbose_logger.log_step_progress(
+                    step_idx=current_step_idx,
+                    total_steps=total_steps,
+                    step_name=step.name,
+                    status="completed" if result.is_success() else "failed",
+                    model=result.model_used or step.model or "default",
+                    duration_s=result.duration_seconds()
+                )
             
             # Log the step execution
             state.log_step_execution(
